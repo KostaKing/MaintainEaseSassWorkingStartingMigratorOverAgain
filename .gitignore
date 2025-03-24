@@ -1,0 +1,29 @@
+﻿## Ignore Visual Studio temporary files and build results
+
+# User-specific files
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+
+# Visual Studio files
+.vs/
+.vscode/
+
+# NuGet Packages
+*.nupkg
+**/[Pp]ackages/*
+
+# Entity Framework Core
+*.db
+*.db-shm
+*.db-wal
