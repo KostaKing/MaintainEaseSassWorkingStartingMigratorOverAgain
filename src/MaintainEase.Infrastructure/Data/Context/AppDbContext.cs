@@ -12,6 +12,7 @@ using MaintainEase.Infrastructure.Data.Configuration;
 using MaintainEase.Infrastructure.Data.Interceptors;
 using MaintainEase.Infrastructure.MultiTenancy;
 using System.Linq.Expressions;
+using MaintainEase.Infrastructure.Data.Converters;
 
 namespace MaintainEase.Infrastructure.Data.Context
 {
@@ -74,59 +75,31 @@ namespace MaintainEase.Infrastructure.Data.Context
 
         private void ConfigureValueObjects(ModelBuilder modelBuilder)
         {
-            // Configure Money value object
+            // Create converter instances
+            var moneyConverter = new MoneyConverter();
+            var addressConverter = new AddressConverter();
+            var identificationConverter = new IdentificationConverter();
+            var tabuExtractConverter = new TabuExtractConverter();
+            var arnonaZoneConverter = new ArnonaZoneConverter();
+
+            // Configure Money value object conversions
             modelBuilder.Entity<Property>()
                 .Property(p => p.PurchasePrice)
-                .HasConversion(
-                    v => $"{v.Amount}|{v.Currency}",
-                    v => {
-                        var parts = v.Split('|');
-                        return new Money(decimal.Parse(parts[0]), parts[1]);
-                    });
+                .HasConversion(moneyConverter);
 
             modelBuilder.Entity<Property>()
                 .Property(p => p.CurrentValue)
-                .HasConversion(
-                    v => $"{v.Amount}|{v.Currency}",
-                    v => {
-                        var parts = v.Split('|');
-                        return new Money(decimal.Parse(parts[0]), parts[1]);
-                    });
+                .HasConversion(moneyConverter);
 
             modelBuilder.Entity<Lease>()
                 .Property(l => l.MonthlyRent)
-                .HasConversion(
-                    v => $"{v.Amount}|{v.Currency}",
-                    v => {
-                        var parts = v.Split('|');
-                        return new Money(decimal.Parse(parts[0]), parts[1]);
-                    });
+                .HasConversion(moneyConverter);
 
             modelBuilder.Entity<Lease>()
                 .Property(l => l.SecurityDeposit)
-                .HasConversion(
-                    v => $"{v.Amount}|{v.Currency}",
-                    v => {
-                        var parts = v.Split('|');
-                        return new Money(decimal.Parse(parts[0]), parts[1]);
-                    });
+                .HasConversion(moneyConverter);
 
-            // Configure Address value object
-            // Use JSON conversion for complex value objects
-            var jsonOptions = new System.Text.Json.JsonSerializerOptions
-            {
-                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
-                WriteIndented = true
-            };
-
-            var addressConverter = new ValueConverter<Address, string>(
-                v => System.Text.Json.JsonSerializer.Serialize(v, jsonOptions),
-                v => System.Text.Json.JsonSerializer.Deserialize<Address>(v, jsonOptions));
-
-            var identificationConverter = new ValueConverter<Identification, string>(
-                v => System.Text.Json.JsonSerializer.Serialize(v, jsonOptions),
-                v => System.Text.Json.JsonSerializer.Deserialize<Identification>(v, jsonOptions));
-
+            // Configure Address and Identification value object conversions
             modelBuilder.Entity<Property>()
                 .Property(p => p.Address)
                 .HasConversion(addressConverter);
@@ -140,14 +113,6 @@ namespace MaintainEase.Infrastructure.Data.Context
                 .HasConversion(identificationConverter);
 
             // Configure Israeli market value objects
-            var tabuExtractConverter = new ValueConverter<Core.Domain.IsraeliMarket.ValueObjects.TabuExtract, string>(
-                v => System.Text.Json.JsonSerializer.Serialize(v, jsonOptions),
-                v => System.Text.Json.JsonSerializer.Deserialize<Core.Domain.IsraeliMarket.ValueObjects.TabuExtract>(v, jsonOptions));
-
-            var arnonaZoneConverter = new ValueConverter<Core.Domain.IsraeliMarket.ValueObjects.ArnonaZone, string>(
-                v => System.Text.Json.JsonSerializer.Serialize(v, jsonOptions),
-                v => System.Text.Json.JsonSerializer.Deserialize<Core.Domain.IsraeliMarket.ValueObjects.ArnonaZone>(v, jsonOptions));
-
             modelBuilder.Entity<Core.Domain.IsraeliMarket.Entities.IsraeliProperty>()
                 .Property(p => p.TabuExtract)
                 .HasConversion(tabuExtractConverter);
@@ -157,19 +122,31 @@ namespace MaintainEase.Infrastructure.Data.Context
                 .HasConversion(arnonaZoneConverter);
         }
 
+        // Modify the ApplyMultiTenancyFilter method in AppDbContext.cs:
+
         private void ApplyMultiTenancyFilter(ModelBuilder modelBuilder)
         {
+            // Get the tenant ID once outside of the loop
+            var currentTenantId = _tenantProvider.GetCurrentTenantId();
+
             // Apply tenant filter to all tenant-specific entities
             foreach (var entityType in modelBuilder.Model.GetEntityTypes()
                 .Where(e => typeof(ITenantEntity).IsAssignableFrom(e.ClrType)))
             {
                 var parameter = Expression.Parameter(entityType.ClrType, "e");
                 var property = Expression.Property(parameter, "TenantId");
-                var tenantIdValue = Expression.Constant(_tenantProvider.GetCurrentTenantId());
-                var body = Expression.Equal(property, tenantIdValue);
-                var lambda = Expression.Lambda(body, parameter);
 
-                modelBuilder.Entity(entityType.ClrType).HasQueryFilter(lambda);
+                // Create a constant expression with the tenant ID
+                var tenantIdValue = Expression.Constant(currentTenantId, typeof(Guid));
+
+                // Create the equality comparison
+                var body = Expression.Equal(property, tenantIdValue);
+
+                // Create a lambda expression without statement body
+                var lambdaExpression = Expression.Lambda(body, parameter);
+
+                // Apply the filter
+                modelBuilder.Entity(entityType.ClrType).HasQueryFilter(lambdaExpression);
             }
         }
 

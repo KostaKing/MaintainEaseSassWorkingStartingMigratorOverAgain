@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text.Json;
 using MaintainEase.Core.Domain.Entities;
 using MaintainEase.Core.Domain.Enums;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace MaintainEase.Infrastructure.Data.Configuration
 {
