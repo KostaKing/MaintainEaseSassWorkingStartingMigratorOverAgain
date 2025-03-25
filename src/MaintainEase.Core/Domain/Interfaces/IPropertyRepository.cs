@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using MaintainEase.Core.Domain.Entities;
+using MaintainEase.Core.Domain.Enums;
 
 namespace MaintainEase.Core.Domain.Interfaces
 {

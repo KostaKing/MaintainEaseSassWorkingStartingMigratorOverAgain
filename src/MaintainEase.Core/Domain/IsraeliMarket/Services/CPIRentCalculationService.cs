@@ -2,7 +2,7 @@ using System;
 using System.Threading.Tasks;
 using MaintainEase.Core.Domain.Interfaces;
 using MaintainEase.Core.Domain.IsraeliMarket.Entities;
-using MaintainEase.Core.Domain.IsraeliMarket.Interfaces;
+using MaintainEase.Core.Domain.IsraeliMarket.IsraelSpecificInterfaces;
 using MaintainEase.Core.Domain.ValueObjects;
 
 namespace MaintainEase.Core.Domain.IsraeliMarket.Services

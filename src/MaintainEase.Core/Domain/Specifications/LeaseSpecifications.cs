@@ -1,6 +1,7 @@
 using System;
 using System.Linq.Expressions;
 using MaintainEase.Core.Domain.Entities;
+using MaintainEase.Core.Domain.Enums;
 
 namespace MaintainEase.Core.Domain.Specifications
 {

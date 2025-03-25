@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using MaintainEase.Core.Domain.Entities;
+using MaintainEase.Core.Domain.Enums;
 using MaintainEase.Core.Domain.Interfaces;
 using MaintainEase.Core.Domain.ValueObjects;
 

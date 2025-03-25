@@ -1,5 +1,6 @@
 using System;
 using MaintainEase.Core.Domain.Entities;
+using MaintainEase.Core.Domain.Enums;
 using MaintainEase.Core.Domain.Events;
 using MaintainEase.Core.Domain.IsraeliMarket.Enums;
 using MaintainEase.Core.Domain.IsraeliMarket.ValueObjects;

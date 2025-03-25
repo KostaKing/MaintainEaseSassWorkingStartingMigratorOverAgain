@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using MaintainEase.Core.Domain.Aggregates;
+using MaintainEase.Core.Domain.Enums;
 using MaintainEase.Core.Domain.Events;
 using MaintainEase.Core.Domain.ValueObjects;
 
