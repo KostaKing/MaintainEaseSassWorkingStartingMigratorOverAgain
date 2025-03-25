@@ -22,6 +22,9 @@ namespace MaintainEase.Core.Domain.IsraeliMarket.Entities
         public bool IsVaadBayitMember { get; private set; }
         public decimal VaadBayitMonthlyFee { get; private set; }
         public string ArnonaBillingId { get; private set; }
+        public string Description { get; private set; }
+        public string NormalizedDescription { get;  set; }
+
 
         // For EF Core
         protected IsraeliProperty() { }
