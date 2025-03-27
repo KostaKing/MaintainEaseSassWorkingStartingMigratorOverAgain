@@ -9,12 +9,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\MaintainEase.Core\MaintainEase.Core.csproj" />
-    <ProjectReference Include="..\MaintainEase.Infrastructure\MaintainEase.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="7.0.5" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="7.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="9.0.3" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="7.0.1" />
   </ItemGroup>
 
