@@ -96,10 +96,16 @@ public class Program
 
         // Add services
         services.AddTransient<MenuService>();
+        // Add migration plugins
+        services.AddMigrationPlugins(Path.Combine(Directory.GetCurrentDirectory(), "Plugins"));
 
         // Add command classes
         services.AddTransient<MaintainEase.DbMigrator.Commands.Database.StatusCommand>();
+        // Add migration plugins
+        services.AddMigrationPlugins(Path.Combine(Directory.GetCurrentDirectory(), "Plugins"));
         services.AddTransient<MaintainEase.DbMigrator.Commands.Migration.MigrateCommand>();
+        // Add migration plugins
+        services.AddMigrationPlugins(Path.Combine(Directory.GetCurrentDirectory(), "Plugins"));
 
         // Build service provider
         return services.BuildServiceProvider();
@@ -159,3 +165,4 @@ public class Program
         }
     }
 }
+
