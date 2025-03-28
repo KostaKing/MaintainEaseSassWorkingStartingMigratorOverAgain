@@ -81,18 +81,21 @@ namespace MaintainEase.DbMigrator.UI.Charts
             // Determine display color based on value
             Color gaugeColor = GetColorForValue(normalizedValue);
 
-            // Create gauge
-            var gauge = new Gauge()
-                .Width(Width)
-                .Label($"[bold]{SafeMarkup.EscapeMarkup(Title)}[/]")
-                .Value(percent)
-                .LeftBracket("[")
-                .RightBracket("]")
-                .FilledStyle(new Style(gaugeColor))
-                .ShowPercentage(false);
+            // Output the title
+            AnsiConsole.MarkupLine($"[bold]{SafeMarkup.EscapeMarkup(Title)}[/]");
 
-            // Display the gauge
-            AnsiConsole.Write(gauge);
+            // Create a simple progress bar to simulate a gauge
+            int width = Width - 10; // Account for borders and padding
+            int filledChars = (int)Math.Round(percent / 100 * width);
+            string filled = new string('█', filledChars);
+            string empty = new string('░', width - filledChars);
+
+            // Draw the gauge
+            AnsiConsole.Write("[");
+            AnsiConsole.Markup($"[{gaugeColor.ToMarkup()}]{filled}[/]");
+            AnsiConsole.Write(empty);
+            AnsiConsole.WriteLine($"] {percent:F1}%");
+            AnsiConsole.WriteLine();
 
             // Display the actual value
             string unitDisplay = string.IsNullOrEmpty(Unit) ? "" : $" {Unit}";
