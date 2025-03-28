@@ -99,18 +99,20 @@ namespace MaintainEase.DbMigrator.Plugins
             // Look for plugin assemblies in the plugins directory
             if (Directory.Exists(pluginsPath))
             {
-                var pluginFiles = Directory.GetFiles(pluginsPath, "*.dll");
-                _logger.LogInformation("Found {Count} plugin files", pluginFiles.Length);
+                // Only target files that follow our plugin naming convention
+                var pluginFiles = Directory.GetFiles(pluginsPath, "MaintainEase.DbMigrator.Plugins*.dll");
+                _logger.LogInformation("Found {Count} potential plugin files", pluginFiles.Length);
 
-                foreach (var pluginFile in pluginFiles)
+                foreach (var file in pluginFiles)
                 {
+                    _logger.LogDebug("Processing plugin file: {FileName}", Path.GetFileName(file));
                     try
                     {
-                        LoadPluginFromFile(pluginFile);
+                        LoadPluginFromFile(file);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Error loading plugin from {PluginFile}", pluginFile);
+                        _logger.LogError(ex, "Error loading plugin from {PluginFile}", file);
                     }
                 }
             }
@@ -135,6 +137,7 @@ namespace MaintainEase.DbMigrator.Plugins
                 _logger.LogInformation("Loaded plugin: {Name} ({ProviderType})", plugin.Name, plugin.ProviderType);
             }
         }
+
 
         /// <summary>
         /// Load plugins directly embedded in the application
@@ -212,9 +215,27 @@ namespace MaintainEase.DbMigrator.Plugins
 
             try
             {
+                var fileName = Path.GetFileName(pluginFile);
+
+                // Safety check - only load our plugin assemblies
+                if (!fileName.StartsWith("MaintainEase.DbMigrator.Plugins"))
+                {
+                    _logger.LogWarning("Skipping non-plugin assembly: {FileName}", fileName);
+                    return;
+                }
+
                 // Load the assembly
                 var pluginAssembly = Assembly.LoadFrom(pluginFile);
                 LoadPluginsFromAssembly(pluginAssembly);
+            }
+            catch (FileLoadException ex)
+            {
+                _logger.LogError(ex, "Assembly dependency conflict loading {PluginFile}. Error: {Message}",
+                    pluginFile, ex.Message);
+            }
+            catch (BadImageFormatException ex)
+            {
+                _logger.LogError(ex, "Not a valid .NET assembly: {PluginFile}", pluginFile);
             }
             catch (Exception ex)
             {
@@ -233,18 +254,37 @@ namespace MaintainEase.DbMigrator.Plugins
 
                 // Find types that implement IMigrationPlugin
                 var pluginTypes = assembly.GetTypes()
-                    .Where(t => !t.IsAbstract && !t.IsInterface && typeof(IMigrationPlugin).IsAssignableFrom(t))
+                    .Where(t => !t.IsAbstract &&
+                                !t.IsInterface &&
+                                !t.IsNested && // Exclude nested types to avoid FallbackMigrationPlugin
+                                typeof(IMigrationPlugin).IsAssignableFrom(t))
                     .ToList();
 
                 _logger.LogInformation("Found {Count} plugin types in assembly {AssemblyName}",
                     pluginTypes.Count, assembly.GetName().Name);
 
+                // Log found types for debugging
+                foreach (var type in pluginTypes)
+                {
+                    _logger.LogDebug("Found plugin type: {PluginType}, IsNested: {IsNested}",
+                        type.FullName, type.IsNested);
+                }
+
                 foreach (var pluginType in pluginTypes)
                 {
-                    _logger.LogDebug("Found plugin type: {PluginType}", pluginType.FullName);
-
                     try
                     {
+                        _logger.LogDebug("Creating instance of plugin type: {PluginType}", pluginType.FullName);
+
+                        // Check if type has a parameterless constructor
+                        var hasDefaultConstructor = pluginType.GetConstructor(Type.EmptyTypes) != null;
+                        if (!hasDefaultConstructor)
+                        {
+                            _logger.LogWarning("Plugin type {PluginType} does not have a parameterless constructor",
+                                pluginType.FullName);
+                            continue;
+                        }
+
                         // Create an instance of the plugin
                         var plugin = Activator.CreateInstance(pluginType) as IMigrationPlugin;
 
@@ -256,26 +296,31 @@ namespace MaintainEase.DbMigrator.Plugins
                         }
                         else
                         {
-                            _logger.LogWarning("Failed to create plugin instance for type {PluginType}", pluginType.FullName);
+                            _logger.LogWarning("Failed to create plugin instance for type {PluginType}",
+                                pluginType.FullName);
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Error creating instance of plugin type {PluginType}", pluginType.FullName);
+                        _logger.LogError(ex, "Error creating instance of plugin type {PluginType}",
+                            pluginType.FullName);
                     }
                 }
             }
             catch (ReflectionTypeLoadException ex)
             {
-                _logger.LogError(ex, "Error loading types from assembly {AssemblyName}", assembly.GetName().Name);
+                _logger.LogError(ex, "Error loading types from assembly {AssemblyName}",
+                    assembly.GetName().Name);
+
                 foreach (var loaderEx in ex.LoaderExceptions)
                 {
-                    _logger.LogError(loaderEx, "Loader exception");
+                    _logger.LogError(loaderEx, "Loader exception details");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error loading plugins from assembly {AssemblyName}", assembly.GetName().Name);
+                _logger.LogError(ex, "Error loading plugins from assembly {AssemblyName}",
+                    assembly.GetName().Name);
             }
         }
 

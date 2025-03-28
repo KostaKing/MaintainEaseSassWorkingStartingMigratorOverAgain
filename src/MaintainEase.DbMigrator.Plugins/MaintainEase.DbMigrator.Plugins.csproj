@@ -16,13 +16,16 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.3" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.3" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.3" />
     <PackageReference Include="Npgsql" Version="9.0.3" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\src\MaintainEase.DbMigrator.Contracts\MaintainEase.DbMigrator.Contracts.csproj" />
+    <ProjectReference Include="..\MaintainEase.DbMigrator.Contracts\MaintainEase.DbMigrator.Contracts.csproj" />
   </ItemGroup>
+
+
 
   <!-- Important: Copy output to the DbMigrator's Plugins folder -->
   <Target Name="CopyPluginToOutput" AfterTargets="Build">
@@ -38,14 +41,10 @@
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginOutputPath)" />
 
     <!-- Copy plugin PDB for debugging if it exists -->
-    <Copy SourceFiles="$(TargetDir)$(TargetName).pdb"
-          DestinationFolder="$(PluginOutputPath)"
-          Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
+    <Copy SourceFiles="$(TargetDir)$(TargetName).pdb" DestinationFolder="$(PluginOutputPath)" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
 
     <!-- Copy dependencies that aren't already in the main app -->
-    <Copy SourceFiles="@(ReferenceCopyLocalPaths)"
-          DestinationFiles="@(ReferenceCopyLocalPaths->'$(PluginOutputPath)%(DestinationSubDirectory)%(Filename)%(Extension)')"
-          Condition="'%(ReferenceCopyLocalPaths.NuGetPackageId)'!='' and '%(ReferenceCopyLocalPaths.NuGetPackageId)'!='MaintainEase.DbMigrator.Contracts'" />
+    <Copy SourceFiles="@(ReferenceCopyLocalPaths)" DestinationFiles="@(ReferenceCopyLocalPaths->'$(PluginOutputPath)%(DestinationSubDirectory)%(Filename)%(Extension)')" Condition="'%(ReferenceCopyLocalPaths.NuGetPackageId)'!='' and '%(ReferenceCopyLocalPaths.NuGetPackageId)'!='MaintainEase.DbMigrator.Contracts'" />
 
     <!-- Log message on successful copy -->
     <Message Text="Copied plugin and dependencies to $(PluginOutputPath)" Importance="high" />
