@@ -27,11 +27,30 @@ namespace MaintainEase.DbMigrator.UI.Menus
         private readonly ApplicationContext _appContext;
         private readonly ILogger _logger;
         private readonly CommandContext _commandContext;
+        private readonly ConnectionManager _connectionManager;
+        private readonly MigrationHelper _migrationHelper;
 
-        public MainMenu(ApplicationContext appContext, ILogger logger)
+        public MainMenu(
+    ApplicationContext appContext,
+    ILogger logger,
+    ConnectionManager connectionManager = null,
+    MigrationHelper migrationHelper = null)
         {
             _appContext = appContext ?? throw new ArgumentNullException(nameof(appContext));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+            // Get services from service provider if not provided directly
+            if (connectionManager == null || migrationHelper == null)
+            {
+                using var scope = Program.ServiceProvider.CreateScope();
+                _connectionManager = connectionManager ?? scope.ServiceProvider.GetService<ConnectionManager>();
+                _migrationHelper = migrationHelper ?? scope.ServiceProvider.GetService<MigrationHelper>();
+            }
+            else
+            {
+                _connectionManager = connectionManager;
+                _migrationHelper = migrationHelper;
+            }
 
             // Initialize command context with minimal command info
             // Create a proper remaining arguments implementation
@@ -177,44 +196,10 @@ namespace MaintainEase.DbMigrator.UI.Menus
         /// </summary>
         private async Task ShowDatabaseOperationsMenuAsync()
         {
-            await SpinnerComponents.WithSpinnerAsync(
-                "Loading database operations...",
-                async () => await Task.Delay(500),
-                "Database");
-
-            SafeMarkup.SectionHeader("Database Operations");
-
-            var options = new Dictionary<string, string>
-            {
-                ["1"] = "View Database Status",
-                ["2"] = "Execute SQL Query",
-                ["3"] = "Backup Database",
-                ["4"] = "Restore Database",
-                ["5"] = "Configure Connection",
-                ["0"] = "Back to Main Menu"
-            };
-
-            string choice = MenuComponents.ShowMainMenu("Database Operations", options);
-            string key = choice.Split(' ')[0];
-
-            switch (key)
-            {
-                case "1": // View Database Status
-                    // Execute the status command directly
-                    await ExecuteStatusCommandAsync();
-                    break;
-                case "2":
-                case "3":
-                case "4":
-                case "5":
-                    DialogComponents.ShowInfo("Feature Coming Soon",
-                        "This database operation feature will be implemented in a future update.");
-                    break;
-            }
-
-            if (key != "0") PressEnterToContinue();
+            using var scope = Program.ServiceProvider.CreateScope();
+            var databaseMenu = new DatabaseProvidersMenu(_appContext, _connectionManager, _migrationHelper);
+            await databaseMenu.ShowAsync();
         }
-
         /// <summary>
         /// Execute the status command
         /// </summary>
@@ -273,10 +258,10 @@ namespace MaintainEase.DbMigrator.UI.Menus
             switch (key)
             {
                 case "1": // Run Migrations
-                    await ExecuteMigrateCommandAsync();
+                    await RunMigrationsAsync();
                     break;
                 case "3": // Create New Migration
-                    await ExecuteCreateMigrationCommandAsync();
+                    await CreateNewMigrationAsync();
                     break;
                 case "2":
                 case "4":
@@ -287,6 +272,129 @@ namespace MaintainEase.DbMigrator.UI.Menus
             }
 
             if (key != "0") PressEnterToContinue();
+        }
+
+
+
+        private async Task CreateNewMigrationAsync()
+        {
+            // Prompt for a migration name
+            var migrationName = AnsiConsole.Prompt(
+                new TextPrompt<string>("Enter migration name:")
+                    .DefaultValue($"Migration_{DateTime.UtcNow:yyyyMMdd_HHmmss}")
+                    .ValidationErrorMessage("[red]Migration name cannot be empty[/]")
+                    .Validate(name => string.IsNullOrWhiteSpace(name)
+                        ? ValidationResult.Error("Migration name cannot be empty")
+                        : ValidationResult.Success()));
+
+            // Select output directory
+            string outputDir = _appContext.MigrationsDirectory;
+            if (MenuComponents.Confirm("Specify output directory?", false))
+            {
+                outputDir = AnsiConsole.Prompt(
+                    new TextPrompt<string>("Enter output directory path:")
+                        .DefaultValue(outputDir)
+                        .ValidationErrorMessage("[red]Directory path cannot be empty[/]"));
+            }
+
+            // Create the migration
+            var result = await SpinnerComponents.WithSpinnerAsync(
+                $"Creating migration '{migrationName}'...",
+                async () => await _migrationHelper.CreateMigrationAsync(migrationName, outputDir),
+                "Processing");
+
+            if (result.Success)
+            {
+                SafeMarkup.Success($"Migration '{migrationName}' created successfully");
+
+                if (result.AppliedMigrations?.Count > 0)
+                {
+                    var migration = result.AppliedMigrations[0];
+
+                    if (!string.IsNullOrEmpty(migration.Id))
+                    {
+                        SafeMarkup.Info($"Migration ID: {migration.Id}");
+                    }
+
+                    if (!string.IsNullOrEmpty(migration.Script))
+                    {
+                        SafeMarkup.Info($"Script: {migration.Script}");
+                    }
+                }
+            }
+            else
+            {
+                SafeMarkup.Error($"Failed to create migration: {result.ErrorMessage}");
+
+                // Offer to create an empty migration file
+                if (MenuComponents.Confirm("Create empty migration file?", true))
+                {
+                    // Create an empty migration file
+                    var migrationFileName = $"{migrationName}.sql";
+                    var migrationFilePath = Path.Combine(outputDir, migrationFileName);
+
+                    try
+                    {
+                        Directory.CreateDirectory(outputDir);
+                        File.WriteAllText(migrationFilePath,
+                            $"-- Migration: {migrationName}\r\n" +
+                            $"-- Created: {DateTime.Now}\r\n" +
+                            $"-- Provider: {_appContext.CurrentProvider}\r\n\r\n" +
+                            $"-- Write your migration SQL here\r\n\r\n");
+
+                        SafeMarkup.Success($"Created empty migration file: {migrationFilePath}");
+                    }
+                    catch (Exception ex)
+                    {
+                        SafeMarkup.Error($"Failed to create empty migration file: {ex.Message}");
+                    }
+                }
+            }
+        }
+
+        private async Task RunMigrationsAsync()
+        {
+            // Refresh migration status first
+            await _migrationHelper.CheckMigrationStatusAsync();
+
+            if (!_appContext.HasPendingMigrations)
+            {
+                SafeMarkup.Success("Database is already up to date. No migrations to apply.");
+                return;
+            }
+
+            SafeMarkup.Info($"Found {_appContext.PendingMigrationsCount} pending migrations.");
+
+            // Confirm running migrations
+            if (!MenuComponents.Confirm($"Apply {_appContext.PendingMigrationsCount} migrations to the {_appContext.CurrentTenant} database?", false))
+            {
+                SafeMarkup.Warning("Migration operation cancelled by user.");
+                return;
+            }
+
+            // Ask about backup
+            bool createBackup = MenuComponents.Confirm("Create database backup before migrations?", _appContext.AutoBackupBeforeMigration);
+
+            // Run migrations
+            var result = await SpinnerComponents.WithSpinnerAsync(
+                "Applying migrations...",
+                async () => await _migrationHelper.RunMigrationsAsync(createBackup),
+                "Database");
+
+            if (result.Success)
+            {
+                SafeMarkup.Success("All migrations were successfully applied.");
+
+                // Show backup information if created
+                if (!string.IsNullOrEmpty(result.BackupPath))
+                {
+                    SafeMarkup.Info($"Database backup created at: {result.BackupPath}");
+                }
+            }
+            else
+            {
+                SafeMarkup.Error($"Migration failed: {result.ErrorMessage}");
+            }
         }
 
         /// <summary>

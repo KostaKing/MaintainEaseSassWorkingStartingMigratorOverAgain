@@ -12,6 +12,7 @@ using MaintainEase.DbMigrator.Services;
 using MaintainEase.DbMigrator.UI.ConsoleHelpers;
 using MaintainEase.DbMigrator.UI.Theme;
 using MaintainEase.DbMigrator.Plugins;
+using MaintainEase.DbMigrator.Commands.Migration;
 
 namespace MaintainEase.DbMigrator;
 
@@ -30,8 +31,6 @@ public class Program
             // Create configuration
             var configuration = BuildConfiguration();
 
-
-
             // Configure services
             ServiceProvider = ConfigureServices(configuration);
 
@@ -41,6 +40,19 @@ public class Program
             // Get application context
             var appContext = ServiceProvider.GetRequiredService<ApplicationContext>();
             appContext.Initialize();
+
+            // Check migration status on startup
+            try
+            {
+                var migrationHelper = ServiceProvider.GetRequiredService<MigrationHelper>();
+                await migrationHelper.CheckMigrationStatusAsync();
+            }
+            catch (Exception ex)
+            {
+                // Log error but continue - this isn't fatal
+                var logger = ServiceProvider.GetRequiredService<ILogger<Program>>();
+                logger.LogWarning(ex, "Failed to check migration status on startup");
+            }
 
             // Determine if we're in CLI mode or interactive mode
             bool isCliMode = args.Length > 0;
@@ -60,6 +72,7 @@ public class Program
         catch (Exception ex)
         {
             Console.Error.WriteLine($"Fatal error: {ex.Message}");
+            Console.Error.WriteLine(ex.StackTrace);
             return 1;
         }
     }
@@ -97,6 +110,9 @@ public class Program
             }
         });
 
+        // Add connection manager
+        services.AddSingleton<ConnectionManager>();
+
         // Add application context
         services.AddSingleton<ApplicationContext>();
 
@@ -105,6 +121,9 @@ public class Program
 
         // Add migration plugins
         services.AddMigrationPlugins(Path.Combine(Directory.GetCurrentDirectory(), "Plugins"));
+
+        // Add migration helper
+        services.AddTransient<MigrationHelper>();
 
         // Add command classes
         services.AddTransient<MaintainEase.DbMigrator.Commands.Database.StatusCommand>();
@@ -169,4 +188,3 @@ public class Program
         }
     }
 }
-

@@ -7,6 +7,7 @@ using Spectre.Console.Cli;
 using MaintainEase.DbMigrator.Configuration;
 using MaintainEase.DbMigrator.UI.ConsoleHelpers;
 using MaintainEase.DbMigrator.UI.Components;
+using MaintainEase.DbMigrator.Commands.Migration;
 
 namespace MaintainEase.DbMigrator.Commands.Database
 {
@@ -29,6 +30,7 @@ namespace MaintainEase.DbMigrator.Commands.Database
                 using var scope = _serviceProvider.CreateScope();
                 var appContext = scope.ServiceProvider.GetRequiredService<ApplicationContext>();
                 var logger = scope.ServiceProvider.GetRequiredService<ILogger<StatusCommand>>();
+                var migrationHelper = scope.ServiceProvider.GetRequiredService<MigrationHelper>();
 
                 // Apply command settings to application context
                 if (!string.IsNullOrEmpty(settings.Environment))
@@ -50,43 +52,42 @@ namespace MaintainEase.DbMigrator.Commands.Database
                 logger.LogInformation("Checking database status for tenant {Tenant} in {Environment} environment",
                     appContext.CurrentTenant, appContext.CurrentEnvironment);
 
-                // Show status information
-                await SpinnerComponents.WithSpinnerAsync(
+                // Check database status
+                var status = await SpinnerComponents.WithSpinnerAsync(
                     "Checking database status...",
-                    async () =>
-                    {
-                        // Simulate checking database status
-                        await Task.Delay(1500);
-
-                        // For demo, set some status properties
-                        appContext.HasPendingMigrations = true;
-                        appContext.PendingMigrationsCount = 3;
-                        appContext.LastMigrationDate = DateTime.UtcNow.AddDays(-5);
-                        appContext.LastMigrationName = "AddUserTable";
-                    },
+                    async () => await migrationHelper.CheckMigrationStatusAsync(),
                     "Database");
 
                 // Display status table
-                // Use DatabaseInfoTable which already has Property and Value columns defined
                 var table = TableComponents.CreateDatabaseInfoTable("Database Status");
 
                 table.AddRow("Environment", $"[cyan]{SafeMarkup.EscapeMarkup(appContext.CurrentEnvironment)}[/]");
                 table.AddRow("Provider", $"[cyan]{SafeMarkup.EscapeMarkup(appContext.CurrentProvider)}[/]");
                 table.AddRow("Tenant", $"[cyan]{SafeMarkup.EscapeMarkup(appContext.CurrentTenant)}[/]");
 
-                if (appContext.HasPendingMigrations)
+                if (!string.IsNullOrEmpty(status.DatabaseName))
                 {
-                    table.AddRow("Pending Migrations", $"[yellow]{appContext.PendingMigrationsCount}[/]");
+                    table.AddRow("Database", SafeMarkup.EscapeMarkup(status.DatabaseName));
+                }
+
+                if (!string.IsNullOrEmpty(status.DatabaseVersion))
+                {
+                    table.AddRow("Version", SafeMarkup.EscapeMarkup(status.DatabaseVersion));
+                }
+
+                if (status.HasPendingMigrations)
+                {
+                    table.AddRow("Pending Migrations", $"[yellow]{status.PendingMigrationsCount}[/]");
                 }
                 else
                 {
                     table.AddRow("Migrations", "[green]Up to date[/]");
                 }
 
-                if (appContext.LastMigrationDate.HasValue)
+                if (status.LastMigrationDate.HasValue)
                 {
-                    table.AddRow("Last Migration", $"{SafeMarkup.EscapeMarkup(appContext.LastMigrationName)} " +
-                        $"([grey]{appContext.LastMigrationDate:yyyy-MM-dd HH:mm}[/])");
+                    table.AddRow("Last Migration", $"{SafeMarkup.EscapeMarkup(status.LastMigrationName)} " +
+                        $"([grey]{status.LastMigrationDate:yyyy-MM-dd HH:mm}[/])");
                 }
 
                 AnsiConsole.WriteLine();
@@ -94,9 +95,31 @@ namespace MaintainEase.DbMigrator.Commands.Database
                 AnsiConsole.WriteLine();
 
                 // If pending migrations, show what's pending
-                if (appContext.HasPendingMigrations)
+                if (status.HasPendingMigrations && status.PendingMigrations?.Count > 0)
                 {
-                    SafeMarkup.Warning($"There are {appContext.PendingMigrationsCount} pending migrations.");
+                    // Display pending migrations
+                    var migrationsTable = TableComponents.CreateMigrationTable("Pending Migrations");
+
+                    foreach (var migration in status.PendingMigrations)
+                    {
+                        migrationsTable.AddRow(
+                            migration.Id ?? "-",
+                            SafeMarkup.EscapeMarkup(migration.Name ?? "Unknown"),
+                            migration.Created?.ToString("yyyy-MM-dd HH:mm") ?? "-",
+                            "[yellow]Pending[/]",
+                            "-"
+                        );
+                    }
+
+                    AnsiConsole.Write(migrationsTable);
+                    AnsiConsole.WriteLine();
+
+                    SafeMarkup.Warning($"There are {status.PendingMigrationsCount} pending migrations.");
+                    SafeMarkup.Info("Run the 'migrate' command to apply pending migrations.");
+                }
+                else if (status.HasPendingMigrations)
+                {
+                    SafeMarkup.Warning($"There are {status.PendingMigrationsCount} pending migrations.");
                     SafeMarkup.Info("Run the 'migrate' command to apply pending migrations.");
                 }
                 else

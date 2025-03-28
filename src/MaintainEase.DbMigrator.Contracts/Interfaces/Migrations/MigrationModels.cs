@@ -120,12 +120,17 @@ namespace MaintainEase.DbMigrator.Contracts.Interfaces.Migrations
         /// Gets or sets the migration name
         /// </summary>
         public string Name { get; set; }
-        
+
         /// <summary>
         /// Gets or sets when the migration was applied
         /// </summary>
         public DateTime? AppliedOn { get; set; }
-        
+
+        /// <summary>
+        /// Gets or sets when the migration was Created
+        /// </summary>
+        public DateTime? Created { get; set; }
+
         /// <summary>
         /// Gets or sets the script that would apply this migration
         /// </summary>

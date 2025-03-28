@@ -36,15 +36,36 @@ namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins.Handlers
             {
                 _logger?.LogInformation("Creating migration: {MigrationName}", request.MigrationName);
 
-                // Create migration using EF Core Tools
+                // Ensure output directory exists
                 var outputDir = string.IsNullOrEmpty(request.OutputDirectory)
-                    ? Directory.GetCurrentDirectory()
+                    ? Path.Combine(Directory.GetCurrentDirectory(), "Migrations")
                     : request.OutputDirectory;
 
-                // In a real implementation, we would use EF Core's design-time services
-                // to create the migration. For now, we'll just return a successful result.
+                if (!Directory.Exists(outputDir))
+                {
+                    Directory.CreateDirectory(outputDir);
+                    _logger?.LogInformation("Created migrations directory: {OutputDir}", outputDir);
+                }
 
-                await Task.Delay(500, cancellationToken); // Simulating work
+                // Generate a unique ID for the migration
+                var migrationId = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+                var migrationFileName = $"{migrationId}_{request.MigrationName}.sql";
+                var migrationFilePath = Path.Combine(outputDir, migrationFileName);
+
+                // Create a simple migration file template
+                var migrationContent =
+                    $"-- Migration: {request.MigrationName}\r\n" +
+                    $"-- Created: {DateTime.UtcNow}\r\n" +
+                    $"-- Provider: SQL Server\r\n\r\n" +
+                    $"-- Write your SQL migration commands below this line\r\n\r\n";
+
+                // In a real implementation, you would generate migration SQL by comparing schemas
+                // This is a simplified example that creates an empty migration file
+
+                // Write to file
+                await File.WriteAllTextAsync(migrationFilePath, migrationContent, cancellationToken);
+
+                _logger?.LogInformation("Created migration file at {FilePath}", migrationFilePath);
 
                 return new MigrationResult
                 {
@@ -53,9 +74,10 @@ namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins.Handlers
                     {
                         new MigrationInfo
                         {
-                            Id = DateTime.UtcNow.ToString("yyyyMMddHHmmss"),
+                            Id = migrationId,
                             Name = request.MigrationName,
-                            Script = "-- SQL Server migration script would be generated here"
+                            Created = DateTime.UtcNow,
+                            Script = migrationFilePath
                         }
                     }
                 };
@@ -71,7 +93,6 @@ namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins.Handlers
                 };
             }
         }
-
         /// <summary>
         /// Applies pending migrations
         /// </summary>

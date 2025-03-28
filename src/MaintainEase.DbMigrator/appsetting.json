@@ -1,0 +1,58 @@
+{
+  "DbMigratorSettings": {
+    "DefaultConnectionString": "Server=localhost;Database=MaintainEase;Trusted_Connection=True;TrustServerCertificate=true;MultipleActiveResultSets=true",
+    "BaseConnectionString": "Server=localhost;Database=MaintainEaseBase;Trusted_Connection=True;TrustServerCertificate=true;MultipleActiveResultSets=true",
+    "DatabaseProvider": "SqlServer",
+    "MigrationsPath": "Migrations",
+    "EnableMultiTenancy": true,
+    "Tenants": [
+      {
+        "Identifier": "default",
+        "Name": "Default Tenant",
+        "ConnectionString": "",
+        "EnableMigrations": true
+      }
+    ],
+    "Backup": {
+      "BackupPath": "Backups",
+      "BackupsToKeep": 5,
+      "BackupBeforeMigration": true
+    },
+    "Console": {
+      "EnableFancyUI": true,
+      "VerboseOutput": false,
+      "Theme": "Default"
+    },
+    "Logging": {
+      "LogLevel": "Information",
+      "LogPath": "Logs",
+      "LogMigrationOperations": true
+    },
+    "Cloud": {
+      "Azure": {
+        "Server": "",
+        "UseManagedIdentity": true
+      },
+      "AWS": {
+        "Region": "us-east-1",
+        "DbInstanceIdentifier": ""
+      }
+    }
+  },
+
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=localhost;Database=MaintainEase;Trusted_Connection=True;TrustServerCertificate=true;MultipleActiveResultSets=true",
+    "BaseConnection": "Server=localhost;Database=MaintainEaseBase;Trusted_Connection=True;TrustServerCertificate=true;MultipleActiveResultSets=true",
+    "SqlServerConnection": "Server=localhost;Database=MaintainEase;Trusted_Connection=True;TrustServerCertificate=true;MultipleActiveResultSets=true",
+    "PostgreSQLConnection": "Host=localhost;Database=MaintainEase;Username=postgres;Password=postgres"
+  },
+
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft": "Warning",
+      "Microsoft.Hosting.Lifetime": "Information",
+      "Microsoft.EntityFrameworkCore.Database.Command": "Information"
+    }
+  }
+}

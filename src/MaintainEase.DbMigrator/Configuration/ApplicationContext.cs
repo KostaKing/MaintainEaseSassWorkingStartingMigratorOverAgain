@@ -12,6 +12,7 @@ namespace MaintainEase.DbMigrator.Configuration
     {
         private readonly IConfiguration _configuration;
         private readonly ILogger<ApplicationContext> _logger;
+        private readonly ConnectionManager _connectionManager;
 
         // General settings
         public Dictionary<string, object> Settings { get; } = new Dictionary<string, object>();
@@ -20,8 +21,18 @@ namespace MaintainEase.DbMigrator.Configuration
         public string Version { get; set; } = "1.0.0";
 
         // Database related properties
-        public string CurrentProvider { get; set; } = "PostgreSQL";
-        public string DefaultConnectionString { get; set; }
+        public string CurrentProvider
+        {
+            get => _connectionManager?.CurrentProvider ?? "SqlServer";
+            set
+            {
+                if (_connectionManager != null)
+                {
+                    _connectionManager.SwitchProvider(value);
+                }
+            }
+        }
+
         public List<string> AvailableTenants { get; set; } = new List<string>();
         public string CurrentTenant { get; set; } = "Default";
 
@@ -52,14 +63,14 @@ namespace MaintainEase.DbMigrator.Configuration
         public int CommandTimeout { get; set; } = 30;
 
         // Connection settings
-        public Dictionary<string, string> ConnectionStrings { get; } = new Dictionary<string, string>();
         public int ConnectionRetryCount { get; set; } = 3;
         public TimeSpan ConnectionRetryDelay { get; set; } = TimeSpan.FromSeconds(5);
 
-        public ApplicationContext(IConfiguration configuration = null, ILogger<ApplicationContext> logger = null)
+        public ApplicationContext(IConfiguration configuration = null, ILogger<ApplicationContext> logger = null, ConnectionManager connectionManager = null)
         {
             _configuration = configuration;
             _logger = logger;
+            _connectionManager = connectionManager;
 
             // Initialize with default values
             InitializeDefaults();
@@ -96,7 +107,7 @@ namespace MaintainEase.DbMigrator.Configuration
         private void LoadFromConfiguration(IConfiguration configToUse = null)
         {
             var config = configToUse ?? _configuration;
-            
+
             try
             {
                 // Load general settings
@@ -104,61 +115,68 @@ namespace MaintainEase.DbMigrator.Configuration
                 Version = config["Application:Version"] ?? Version;
 
                 // Load database settings
-                CurrentProvider = _configuration["Database:Provider"] ?? CurrentProvider;
-                DefaultConnectionString = _configuration.GetConnectionString("DefaultConnection") ?? DefaultConnectionString;
-
-                // Load connection strings
-                var connectionStringsSection = _configuration.GetSection("ConnectionStrings");
-                if (connectionStringsSection.Exists())
+                if (_connectionManager == null) // Only set if not using ConnectionManager
                 {
-                    foreach (var connectionString in connectionStringsSection.GetChildren())
+                    var configProvider = config["DbMigratorSettings:DatabaseProvider"] ?? config["Database:Provider"];
+                    if (!string.IsNullOrEmpty(configProvider))
                     {
-                        ConnectionStrings[connectionString.Key] = connectionString.Value;
+                        CurrentProvider = configProvider;
                     }
                 }
 
                 // Load tenant list if available
-                var tenantsSection = _configuration.GetSection("Tenants");
+                var tenantsSection = config.GetSection("DbMigratorSettings:Tenants");
                 if (tenantsSection.Exists())
                 {
                     foreach (var tenant in tenantsSection.GetChildren())
                     {
-                        AvailableTenants.Add(tenant.Key);
+                        var tenantId = tenant["Identifier"];
+                        if (!string.IsNullOrEmpty(tenantId) && !AvailableTenants.Contains(tenantId))
+                        {
+                            AvailableTenants.Add(tenantId);
+                        }
                     }
                 }
 
+                // If no tenants were found, add a default tenant
+                if (AvailableTenants.Count == 0)
+                {
+                    AvailableTenants.Add("Default");
+                }
+
                 // Load paths if available
-                WorkingDirectory = _configuration["Paths:WorkingDirectory"] ?? WorkingDirectory;
-                ScriptsDirectory = _configuration["Paths:ScriptsDirectory"] ?? ScriptsDirectory;
-                LogsDirectory = _configuration["Paths:LogsDirectory"] ?? LogsDirectory;
-                BackupsDirectory = _configuration["Paths:BackupsDirectory"] ?? BackupsDirectory;
-                MigrationsDirectory = _configuration["Paths:MigrationsDirectory"] ?? MigrationsDirectory;
+                WorkingDirectory = config["Paths:WorkingDirectory"] ?? WorkingDirectory;
+                ScriptsDirectory = config["Paths:ScriptsDirectory"] ?? config["DbMigratorSettings:MigrationsPath"] ?? ScriptsDirectory;
+                LogsDirectory = config["Paths:LogsDirectory"] ?? config["DbMigratorSettings:Logging:LogPath"] ?? LogsDirectory;
+                BackupsDirectory = config["Paths:BackupsDirectory"] ?? config["DbMigratorSettings:Backup:BackupPath"] ?? BackupsDirectory;
+                MigrationsDirectory = config["Paths:MigrationsDirectory"] ?? config["DbMigratorSettings:MigrationsPath"] ?? MigrationsDirectory;
 
                 // Load user preferences
-                PreferredTheme = _configuration["UserPreferences:Theme"] ?? PreferredTheme;
+                PreferredTheme = config["UserPreferences:Theme"] ?? config["DbMigratorSettings:Console:Theme"] ?? PreferredTheme;
 
-                if (bool.TryParse(_configuration["UserPreferences:ConfirmDangerousOperations"], out var confirmDangerous))
+                if (bool.TryParse(config["UserPreferences:ConfirmDangerousOperations"], out var confirmDangerous))
                 {
                     ConfirmDangerousOperations = confirmDangerous;
                 }
 
-                if (bool.TryParse(_configuration["UserPreferences:AutoBackupBeforeMigration"], out var autoBackup))
+                var backupBeforeMigration = config["DbMigratorSettings:Backup:BackupBeforeMigration"];
+                if (backupBeforeMigration != null && bool.TryParse(backupBeforeMigration, out var autoBackup))
                 {
                     AutoBackupBeforeMigration = autoBackup;
                 }
 
-                if (int.TryParse(_configuration["UserPreferences:CommandTimeout"], out var commandTimeout))
+                if (int.TryParse(config["UserPreferences:CommandTimeout"], out var commandTimeout))
                 {
                     CommandTimeout = commandTimeout;
                 }
 
                 // Load connection retry settings
-                if (int.TryParse(_configuration["Connection:RetryCount"], out var retryCount))
+                if (int.TryParse(config["Connection:RetryCount"], out var retryCount))
                 {
                     ConnectionRetryCount = retryCount;
                 }
 
-                if (int.TryParse(_configuration["Connection:RetryDelaySeconds"], out var retryDelay))
+                if (int.TryParse(config["Connection:RetryDelaySeconds"], out var retryDelay))
                 {
                     ConnectionRetryDelay = TimeSpan.FromSeconds(retryDelay);
                 }
@@ -209,21 +227,31 @@ namespace MaintainEase.DbMigrator.Configuration
         }
 
         /// <summary>
-        /// Add or update connection string
+        /// Get connection string for the current provider
         /// </summary>
-        public void SetConnectionString(string name, string connectionString)
+        public string GetConnectionString(string tenant = null)
         {
-            ConnectionStrings[name] = connectionString;
-        }
+            if (_connectionManager != null)
+            {
+                if (!string.IsNullOrEmpty(tenant) && tenant != "Default")
+                {
+                    return _connectionManager.GetTenantConnectionString(tenant);
+                }
+                return _connectionManager.GetConnectionString();
+            }
 
-        /// <summary>
-        /// Get connection string by name
-        /// </summary>
-        public string GetConnectionString(string name)
-        {
-            return ConnectionStrings.TryGetValue(name, out var connectionString)
-                ? connectionString
-                : null;
+            // Legacy fallback if ConnectionManager is not available
+            if (!string.IsNullOrEmpty(tenant) && tenant != "Default")
+            {
+                var tenantConnection = _configuration[$"DbMigratorSettings:Tenants:{tenant}:ConnectionString"];
+                if (!string.IsNullOrEmpty(tenantConnection))
+                {
+                    return tenantConnection;
+                }
+            }
+
+            return _configuration.GetConnectionString("DefaultConnection") ??
+                   _configuration["DbMigratorSettings:DefaultConnectionString"];
         }
 
         /// <summary>
@@ -379,9 +407,6 @@ namespace MaintainEase.DbMigrator.Configuration
                 var tempConfig = configBuilder.Build();
                 LoadFromConfiguration(tempConfig);
 
-                // Load settings from this configuration
-
-
                 _logger?.LogInformation("Loaded settings from {FilePath}", filePath);
                 return true;
             }
@@ -409,7 +434,6 @@ namespace MaintainEase.DbMigrator.Configuration
         public void Reset()
         {
             Settings.Clear();
-            ConnectionStrings.Clear();
             AvailableTenants.Clear();
 
             InitializeDefaults();
