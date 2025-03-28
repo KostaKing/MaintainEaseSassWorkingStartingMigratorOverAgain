@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace MaintainEase.DbMigrator.Contracts.Interfaces
+namespace MaintainEase.DbMigrator.Contracts.Interfaces.Migrations
 {
     /// <summary>
     /// Represents a configuration for database connections

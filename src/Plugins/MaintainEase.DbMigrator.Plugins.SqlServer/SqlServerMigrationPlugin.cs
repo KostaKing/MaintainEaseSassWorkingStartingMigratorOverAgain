@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
-using MaintainEase.DbMigrator.Contracts.Interfaces;
 using MaintainEase.DbMigrator.Plugins.SqlServer.Handlers;
+using MaintainEase.DbMigrator.Contracts.Interfaces.Migrations;
 
 namespace MaintainEase.DbMigrator.Plugins.SqlServer
 {

@@ -10,6 +10,7 @@ using MaintainEase.DbMigrator.Contracts.Interfaces;
 using MaintainEase.DbMigrator.Plugins;
 using MaintainEase.DbMigrator.UI.ConsoleHelpers;
 using MaintainEase.DbMigrator.UI.Components;
+using MaintainEase.DbMigrator.Contracts.Interfaces.Migrations;
 
 namespace MaintainEase.DbMigrator.Commands.Migration
 {

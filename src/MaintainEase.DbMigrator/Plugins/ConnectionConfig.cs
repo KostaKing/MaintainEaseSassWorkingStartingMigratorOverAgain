@@ -1,5 +1,5 @@
 using System;
-using MaintainEase.DbMigrator.Contracts.Interfaces;
+using MaintainEase.DbMigrator.Contracts.Interfaces.Migrations;
 using MaintainEase.DbMigrator.UI.Wizards;
 
 namespace MaintainEase.DbMigrator.Plugins

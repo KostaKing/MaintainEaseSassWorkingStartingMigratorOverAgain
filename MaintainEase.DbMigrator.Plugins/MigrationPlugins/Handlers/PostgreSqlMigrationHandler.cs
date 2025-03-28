@@ -8,7 +8,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MaintainEase.DbMigrator.Contracts.Interfaces.Migrations;
 
-namespace MaintainEase.DbMigrator.Plugins.PostgreSQL.Handlers
+namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins.Handlers
+
 {
     /// <summary>
     /// Migration handler for PostgreSQL

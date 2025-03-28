@@ -1,23 +1,22 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
+using MaintainEase.DbMigrator.Contracts.Interfaces.Migrations;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using MaintainEase.DbMigrator.Contracts.Interfaces.Migrations;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
 
-namespace MaintainEase.DbMigrator.Plugins.PostgreSQL.Handlers
+namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins.Handlers
 {
     /// <summary>
-    /// Migration handler for PostgreSQL
+    /// Migration handler for SQL Server
     /// </summary>
-    public class PostgreSqlMigrationHandler : IMigrationHandler
+    public class SqlServerMigrationHandler : IMigrationHandler
     {
-        private readonly ILogger<PostgreSqlMigrationHandler> _logger;
+        private readonly ILogger<SqlServerMigrationHandler> _logger;
 
-        public PostgreSqlMigrationHandler(ILogger<PostgreSqlMigrationHandler> logger = null)
+        public SqlServerMigrationHandler(ILogger<SqlServerMigrationHandler> logger = null)
         {
             // Note: Logger is optional to allow for simpler instantiation when plugins are loaded dynamically
             _logger = logger;
@@ -26,7 +25,7 @@ namespace MaintainEase.DbMigrator.Plugins.PostgreSQL.Handlers
         /// <summary>
         /// Gets the provider type this handler supports
         /// </summary>
-        public string ProviderType => "PostgreSQL";
+        public string ProviderType => "SqlServer";
 
         /// <summary>
         /// Creates a new database migration
@@ -35,7 +34,7 @@ namespace MaintainEase.DbMigrator.Plugins.PostgreSQL.Handlers
         {
             try
             {
-                _logger?.LogInformation("Creating PostgreSQL migration: {MigrationName}", request.MigrationName);
+                _logger?.LogInformation("Creating migration: {MigrationName}", request.MigrationName);
 
                 // Create migration using EF Core Tools
                 var outputDir = string.IsNullOrEmpty(request.OutputDirectory)
@@ -56,14 +55,14 @@ namespace MaintainEase.DbMigrator.Plugins.PostgreSQL.Handlers
                         {
                             Id = DateTime.UtcNow.ToString("yyyyMMddHHmmss"),
                             Name = request.MigrationName,
-                            Script = "-- PostgreSQL migration script would be generated here"
+                            Script = "-- SQL Server migration script would be generated here"
                         }
                     }
                 };
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Error creating PostgreSQL migration: {MigrationName}", request.MigrationName);
+                _logger?.LogError(ex, "Error creating migration: {MigrationName}", request.MigrationName);
 
                 return new MigrationResult
                 {
@@ -80,19 +79,19 @@ namespace MaintainEase.DbMigrator.Plugins.PostgreSQL.Handlers
         {
             try
             {
-                _logger?.LogInformation("Applying PostgreSQL migrations using connection string: {ConnectionString}",
+                _logger?.LogInformation("Applying migrations using connection string: {ConnectionString}",
                     MaskConnectionString(request.ConnectionConfig.ConnectionString));
 
                 // Create DB context options
                 var optionsBuilder = new DbContextOptionsBuilder();
-                optionsBuilder.UseNpgsql(request.ConnectionConfig.ConnectionString);
+                optionsBuilder.UseSqlServer(request.ConnectionConfig.ConnectionString);
 
                 // If creating a backup was requested
                 string backupPath = null;
                 if (request.CreateBackup)
                 {
                     backupPath = await CreateBackupAsync(request, cancellationToken);
-                    _logger?.LogInformation("Created PostgreSQL backup at: {BackupPath}", backupPath);
+                    _logger?.LogInformation("Created backup at: {BackupPath}", backupPath);
                 }
 
                 await Task.Delay(1000, cancellationToken); // Simulating migration work
@@ -124,7 +123,7 @@ namespace MaintainEase.DbMigrator.Plugins.PostgreSQL.Handlers
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Error applying PostgreSQL migrations");
+                _logger?.LogError(ex, "Error applying migrations");
 
                 return new MigrationResult
                 {
@@ -141,12 +140,12 @@ namespace MaintainEase.DbMigrator.Plugins.PostgreSQL.Handlers
         {
             try
             {
-                _logger?.LogInformation("Getting PostgreSQL migration status using connection string: {ConnectionString}",
+                _logger?.LogInformation("Getting migration status using connection string: {ConnectionString}",
                     MaskConnectionString(request.ConnectionConfig.ConnectionString));
 
                 // Create DB context options
                 var optionsBuilder = new DbContextOptionsBuilder();
-                optionsBuilder.UseNpgsql(request.ConnectionConfig.ConnectionString);
+                optionsBuilder.UseSqlServer(request.ConnectionConfig.ConnectionString);
 
                 await Task.Delay(500, cancellationToken); // Simulating work
 
@@ -188,15 +187,15 @@ namespace MaintainEase.DbMigrator.Plugins.PostgreSQL.Handlers
                     },
                     LastMigrationDate = DateTime.UtcNow.AddDays(-3),
                     LastMigrationName = "AddUserTable",
-                    ProviderName = "PostgreSQL",
-                    DatabaseName = "test_database",
-                    DatabaseVersion = "PostgreSQL 14.5",
+                    ProviderName = "SqlServer",
+                    DatabaseName = "TestDatabase",
+                    DatabaseVersion = "SQL Server 2019",
                     ErrorMessage = null // Added this property
                 };
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Error getting PostgreSQL migration status");
+                _logger?.LogError(ex, "Error getting migration status");
 
                 return new MigrationStatus
                 {
@@ -214,7 +213,7 @@ namespace MaintainEase.DbMigrator.Plugins.PostgreSQL.Handlers
         {
             try
             {
-                _logger?.LogInformation("Generating PostgreSQL migration scripts for connection string: {ConnectionString}",
+                _logger?.LogInformation("Generating migration scripts for connection string: {ConnectionString}",
                     MaskConnectionString(request.ConnectionConfig.ConnectionString));
 
                 // Create output directory if it doesn't exist
@@ -229,7 +228,7 @@ namespace MaintainEase.DbMigrator.Plugins.PostgreSQL.Handlers
 
                 // Create DB context options
                 var optionsBuilder = new DbContextOptionsBuilder();
-                optionsBuilder.UseNpgsql(request.ConnectionConfig.ConnectionString);
+                optionsBuilder.UseSqlServer(request.ConnectionConfig.ConnectionString);
 
                 await Task.Delay(1000, cancellationToken); // Simulating work
 
@@ -244,19 +243,21 @@ namespace MaintainEase.DbMigrator.Plugins.PostgreSQL.Handlers
 
                 // Write dummy scripts for demonstration
                 await File.WriteAllTextAsync(scriptPath1,
-                    "-- PostgreSQL Migration Script for AddProductTable\n" +
-                    "CREATE TABLE \"Products\" (\n" +
-                    "    \"Id\" SERIAL PRIMARY KEY,\n" +
-                    "    \"Name\" VARCHAR(100) NOT NULL,\n" +
-                    "    \"Price\" DECIMAL(18,2) NOT NULL\n" +
+                    "-- SQL Server Migration Script for AddProductTable\n" +
+                    "CREATE TABLE [Products] (\n" +
+                    "    [Id] INT NOT NULL IDENTITY(1,1),\n" +
+                    "    [Name] NVARCHAR(100) NOT NULL,\n" +
+                    "    [Price] DECIMAL(18,2) NOT NULL,\n" +
+                    "    CONSTRAINT [PK_Products] PRIMARY KEY ([Id])\n" +
                     ");", cancellationToken);
 
                 await File.WriteAllTextAsync(scriptPath2,
-                    "-- PostgreSQL Migration Script for AddOrderTable\n" +
-                    "CREATE TABLE \"Orders\" (\n" +
-                    "    \"Id\" SERIAL PRIMARY KEY,\n" +
-                    "    \"Date\" TIMESTAMP NOT NULL,\n" +
-                    "    \"CustomerId\" INTEGER NOT NULL\n" +
+                    "-- SQL Server Migration Script for AddOrderTable\n" +
+                    "CREATE TABLE [Orders] (\n" +
+                    "    [Id] INT NOT NULL IDENTITY(1,1),\n" +
+                    "    [Date] DATETIME2 NOT NULL,\n" +
+                    "    [CustomerId] INT NOT NULL,\n" +
+                    "    CONSTRAINT [PK_Orders] PRIMARY KEY ([Id])\n" +
                     ");", cancellationToken);
 
                 return new MigrationResult
@@ -282,7 +283,7 @@ namespace MaintainEase.DbMigrator.Plugins.PostgreSQL.Handlers
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Error generating PostgreSQL migration scripts");
+                _logger?.LogError(ex, "Error generating migration scripts");
 
                 return new MigrationResult
                 {
@@ -299,12 +300,12 @@ namespace MaintainEase.DbMigrator.Plugins.PostgreSQL.Handlers
         {
             try
             {
-                _logger?.LogInformation("Testing connection to PostgreSQL: {ConnectionString}",
+                _logger?.LogInformation("Testing connection to SQL Server: {ConnectionString}",
                     MaskConnectionString(request.ConnectionConfig.ConnectionString));
 
                 // Create DB context options
                 var optionsBuilder = new DbContextOptionsBuilder();
-                optionsBuilder.UseNpgsql(request.ConnectionConfig.ConnectionString);
+                optionsBuilder.UseSqlServer(request.ConnectionConfig.ConnectionString);
 
                 await Task.Delay(500, cancellationToken); // Simulating connection test
 
@@ -316,7 +317,7 @@ namespace MaintainEase.DbMigrator.Plugins.PostgreSQL.Handlers
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Error testing connection to PostgreSQL");
+                _logger?.LogError(ex, "Error testing connection to SQL Server");
                 return false;
             }
         }
@@ -340,16 +341,16 @@ namespace MaintainEase.DbMigrator.Plugins.PostgreSQL.Handlers
 
             // Generate backup file name
             var databaseName = ExtractDatabaseName(request.ConnectionConfig.ConnectionString);
-            var backupFileName = $"{databaseName}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.sql";
+            var backupFileName = $"{databaseName}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.bak";
             var backupPath = Path.Combine(backupDir, backupFileName);
 
-            // In a real implementation, we would execute a command like:
-            // pg_dump -Fc {databaseName} > {backupPath}
+            // In a real implementation, we would execute a SQL command like:
+            // BACKUP DATABASE [{databaseName}] TO DISK = '{backupPath}' WITH FORMAT, INIT, NAME = '{databaseName}-Full Database Backup'
 
             await Task.Delay(2000, cancellationToken); // Simulating backup operation
 
             // Create a dummy backup file for demonstration
-            await File.WriteAllTextAsync(backupPath, "-- This is a simulated PostgreSQL database backup file.", cancellationToken);
+            await File.WriteAllTextAsync(backupPath, "This is a simulated database backup file.", cancellationToken);
 
             return backupPath;
         }
@@ -359,7 +360,7 @@ namespace MaintainEase.DbMigrator.Plugins.PostgreSQL.Handlers
         /// </summary>
         private string ExtractDatabaseName(string connectionString)
         {
-            // Simple parser to extract the database name from a PostgreSQL connection string
+            // Simple parser to extract the database name from a SQL Server connection string
             var parts = connectionString.Split(';');
             foreach (var part in parts)
             {
@@ -367,23 +368,14 @@ namespace MaintainEase.DbMigrator.Plugins.PostgreSQL.Handlers
                 if (keyValue.Length == 2)
                 {
                     var key = keyValue[0].Trim().ToLowerInvariant();
-                    if (key == "database")
+                    if (key == "database" || key == "initial catalog")
                     {
                         return keyValue[1].Trim();
                     }
                 }
             }
 
-            // Alternative format: "Host=localhost;Database=mydb"
-            foreach (var part in parts)
-            {
-                if (part.StartsWith("Database=", StringComparison.OrdinalIgnoreCase))
-                {
-                    return part.Substring("Database=".Length).Trim();
-                }
-            }
-
-            return "postgres";
+            return "Database";
         }
 
         /// <summary>

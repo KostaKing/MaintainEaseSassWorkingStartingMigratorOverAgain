@@ -6,7 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using MaintainEase.DbMigrator.Contracts.Interfaces;
+using MaintainEase.DbMigrator.Contracts.Interfaces.Migrations;
 
 namespace MaintainEase.DbMigrator.Plugins.SqlServer.Handlers
 {

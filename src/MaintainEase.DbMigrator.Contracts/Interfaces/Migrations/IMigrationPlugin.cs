@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace MaintainEase.DbMigrator.Contracts.Interfaces
+namespace MaintainEase.DbMigrator.Contracts.Interfaces.Migrations
 {
     /// <summary>
     /// Represents a database provider plugin

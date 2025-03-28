@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace MaintainEase.DbMigrator.Contracts.Interfaces
+namespace MaintainEase.DbMigrator.Contracts.Interfaces.Migrations
 {
     /// <summary>
     /// Handles database migrations
