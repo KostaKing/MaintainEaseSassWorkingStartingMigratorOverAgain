@@ -187,11 +187,12 @@ namespace MaintainEase.DbMigrator.UI.Components
             string[] headers = columns.Select(c => c.Header).ToArray();
             var table = CreateTable(title, headers);
             table.Expand();
-            
+
             // Add rows
             foreach (var item in data)
             {
-                var rowValues = columns.Select(c => {
+                var rowValues = columns.Select<(string Header, Func<T, object> ValueSelector), IRenderable>(c =>
+                {
                     var value = c.ValueSelector(item);
                     return value switch
                     {
@@ -202,11 +203,11 @@ namespace MaintainEase.DbMigrator.UI.Components
                         Enum e => new Markup($"[blue]{e}[/]"),
                         _ => new Text(SafeMarkup.EscapeMarkup(value.ToString()))
                     };
-                }).ToArray<IRenderable>();
-                
+                }).ToArray();
+
                 table.AddRow(rowValues);
             }
-            
+
             return table;
         }
 

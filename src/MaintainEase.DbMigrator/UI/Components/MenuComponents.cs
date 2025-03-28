@@ -31,36 +31,7 @@ namespace MaintainEase.DbMigrator.UI.Components
             return menu;
         }
         
-        /// <summary>
-        /// Create a selection menu with items organized into groups
-        /// </summary>
-        public static SelectionPrompt<T> CreateGroupedMenu<T, TGroup>(
-            string title,
-            IEnumerable<T> items,
-            Func<T, string> formatter,
-            Func<T, TGroup> groupSelector,
-            Func<TGroup, string> groupFormatter)
-            where TGroup : notnull
-        {
-            var menu = new SelectionPrompt<T>()
-                .Title(SafeMarkup.EscapeMarkup(title))
-                .PageSize(15)
-                .HighlightStyle(SafeMarkup.Themes.PrimaryStyle)
-                .UseConverter(item => SafeMarkup.EscapeMarkup(formatter(item)));
-
-            // Group the items
-            var groupedItems = items.GroupBy(groupSelector);
-                
-            foreach (var group in groupedItems)
-            {
-                menu.AddChoiceGroup(
-                    group.Key, 
-                    group, 
-                    groupTitle => SafeMarkup.EscapeMarkup(groupFormatter(groupTitle)));
-            }
-                
-            return menu;
-        }
+     
 
         /// <summary>
         /// Create a selection menu with described options
