@@ -16,18 +16,18 @@ namespace MaintainEase.DbMigrator.Plugins.SqlServer.Handlers
     public class SqlServerMigrationHandler : IMigrationHandler
     {
         private readonly ILogger<SqlServerMigrationHandler> _logger;
-        
+
         public SqlServerMigrationHandler(ILogger<SqlServerMigrationHandler> logger = null)
         {
             // Note: Logger is optional to allow for simpler instantiation when plugins are loaded dynamically
             _logger = logger;
         }
-        
+
         /// <summary>
         /// Gets the provider type this handler supports
         /// </summary>
         public string ProviderType => "SqlServer";
-        
+
         /// <summary>
         /// Creates a new database migration
         /// </summary>
@@ -36,17 +36,17 @@ namespace MaintainEase.DbMigrator.Plugins.SqlServer.Handlers
             try
             {
                 _logger?.LogInformation("Creating migration: {MigrationName}", request.MigrationName);
-                
+
                 // Create migration using EF Core Tools
-                var outputDir = string.IsNullOrEmpty(request.OutputDirectory) 
-                    ? Directory.GetCurrentDirectory() 
+                var outputDir = string.IsNullOrEmpty(request.OutputDirectory)
+                    ? Directory.GetCurrentDirectory()
                     : request.OutputDirectory;
-                
+
                 // In a real implementation, we would use EF Core's design-time services
                 // to create the migration. For now, we'll just return a successful result.
-                
+
                 await Task.Delay(500, cancellationToken); // Simulating work
-                
+
                 return new MigrationResult
                 {
                     Success = true,
@@ -64,7 +64,7 @@ namespace MaintainEase.DbMigrator.Plugins.SqlServer.Handlers
             catch (Exception ex)
             {
                 _logger?.LogError(ex, "Error creating migration: {MigrationName}", request.MigrationName);
-                
+
                 return new MigrationResult
                 {
                     Success = false,
@@ -72,7 +72,7 @@ namespace MaintainEase.DbMigrator.Plugins.SqlServer.Handlers
                 };
             }
         }
-        
+
         /// <summary>
         /// Applies pending migrations
         /// </summary>
@@ -80,13 +80,13 @@ namespace MaintainEase.DbMigrator.Plugins.SqlServer.Handlers
         {
             try
             {
-                _logger?.LogInformation("Applying migrations using connection string: {ConnectionString}", 
+                _logger?.LogInformation("Applying migrations using connection string: {ConnectionString}",
                     MaskConnectionString(request.ConnectionConfig.ConnectionString));
-                
+
                 // Create DB context options
                 var optionsBuilder = new DbContextOptionsBuilder();
                 optionsBuilder.UseSqlServer(request.ConnectionConfig.ConnectionString);
-                
+
                 // If creating a backup was requested
                 string backupPath = null;
                 if (request.CreateBackup)
@@ -94,13 +94,13 @@ namespace MaintainEase.DbMigrator.Plugins.SqlServer.Handlers
                     backupPath = await CreateBackupAsync(request, cancellationToken);
                     _logger?.LogInformation("Created backup at: {BackupPath}", backupPath);
                 }
-                
+
                 await Task.Delay(1000, cancellationToken); // Simulating migration work
-                
+
                 // In a real implementation, we would:
                 // 1. Create a DbContext using the options
                 // 2. Call context.Database.MigrateAsync()
-                
+
                 return new MigrationResult
                 {
                     Success = true,
@@ -125,7 +125,7 @@ namespace MaintainEase.DbMigrator.Plugins.SqlServer.Handlers
             catch (Exception ex)
             {
                 _logger?.LogError(ex, "Error applying migrations");
-                
+
                 return new MigrationResult
                 {
                     Success = false,
@@ -133,7 +133,7 @@ namespace MaintainEase.DbMigrator.Plugins.SqlServer.Handlers
                 };
             }
         }
-        
+
         /// <summary>
         /// Gets the migration status
         /// </summary>
@@ -141,19 +141,19 @@ namespace MaintainEase.DbMigrator.Plugins.SqlServer.Handlers
         {
             try
             {
-                _logger?.LogInformation("Getting migration status using connection string: {ConnectionString}", 
+                _logger?.LogInformation("Getting migration status using connection string: {ConnectionString}",
                     MaskConnectionString(request.ConnectionConfig.ConnectionString));
-                
+
                 // Create DB context options
                 var optionsBuilder = new DbContextOptionsBuilder();
                 optionsBuilder.UseSqlServer(request.ConnectionConfig.ConnectionString);
-                
+
                 await Task.Delay(500, cancellationToken); // Simulating work
-                
+
                 // In a real implementation, we would:
                 // 1. Create a DbContext using the options
                 // 2. Call context.Database.GetPendingMigrationsAsync() and context.Database.GetAppliedMigrationsAsync()
-                
+
                 return new MigrationStatus
                 {
                     HasPendingMigrations = true,
@@ -190,13 +190,14 @@ namespace MaintainEase.DbMigrator.Plugins.SqlServer.Handlers
                     LastMigrationName = "AddUserTable",
                     ProviderName = "SqlServer",
                     DatabaseName = "TestDatabase",
-                    DatabaseVersion = "SQL Server 2019"
+                    DatabaseVersion = "SQL Server 2019",
+                    ErrorMessage = null // Added this property
                 };
             }
             catch (Exception ex)
             {
                 _logger?.LogError(ex, "Error getting migration status");
-                
+
                 return new MigrationStatus
                 {
                     HasPendingMigrations = false,
@@ -205,7 +206,7 @@ namespace MaintainEase.DbMigrator.Plugins.SqlServer.Handlers
                 };
             }
         }
-        
+
         /// <summary>
         /// Generates scripts for pending migrations without applying them
         /// </summary>
@@ -213,53 +214,53 @@ namespace MaintainEase.DbMigrator.Plugins.SqlServer.Handlers
         {
             try
             {
-                _logger?.LogInformation("Generating migration scripts for connection string: {ConnectionString}", 
+                _logger?.LogInformation("Generating migration scripts for connection string: {ConnectionString}",
                     MaskConnectionString(request.ConnectionConfig.ConnectionString));
-                
+
                 // Create output directory if it doesn't exist
-                var outputDir = string.IsNullOrEmpty(request.OutputDirectory) 
-                    ? Path.Combine(Directory.GetCurrentDirectory(), "Scripts") 
+                var outputDir = string.IsNullOrEmpty(request.OutputDirectory)
+                    ? Path.Combine(Directory.GetCurrentDirectory(), "Scripts")
                     : request.OutputDirectory;
-                    
+
                 if (!Directory.Exists(outputDir))
                 {
                     Directory.CreateDirectory(outputDir);
                 }
-                
+
                 // Create DB context options
                 var optionsBuilder = new DbContextOptionsBuilder();
                 optionsBuilder.UseSqlServer(request.ConnectionConfig.ConnectionString);
-                
+
                 await Task.Delay(1000, cancellationToken); // Simulating work
-                
+
                 // In a real implementation, we would:
                 // 1. Create a DbContext using the options
                 // 2. Get the pending migrations
                 // 3. Generate scripts for each migration
                 // 4. Write the scripts to files
-                
+
                 var scriptPath1 = Path.Combine(outputDir, "20230803140000_AddProductTable.sql");
                 var scriptPath2 = Path.Combine(outputDir, "20230804150000_AddOrderTable.sql");
-                
+
                 // Write dummy scripts for demonstration
-                await File.WriteAllTextAsync(scriptPath1, 
-                    "-- SQL Server Migration Script for AddProductTable\\n" +
-                    "CREATE TABLE [Products] (\\n" +
-                    "    [Id] INT NOT NULL IDENTITY(1,1),\\n" +
-                    "    [Name] NVARCHAR(100) NOT NULL,\\n" +
-                    "    [Price] DECIMAL(18,2) NOT NULL,\\n" +
-                    "    CONSTRAINT [PK_Products] PRIMARY KEY ([Id])\\n" +
+                await File.WriteAllTextAsync(scriptPath1,
+                    "-- SQL Server Migration Script for AddProductTable\n" +
+                    "CREATE TABLE [Products] (\n" +
+                    "    [Id] INT NOT NULL IDENTITY(1,1),\n" +
+                    "    [Name] NVARCHAR(100) NOT NULL,\n" +
+                    "    [Price] DECIMAL(18,2) NOT NULL,\n" +
+                    "    CONSTRAINT [PK_Products] PRIMARY KEY ([Id])\n" +
                     ");", cancellationToken);
-                    
-                await File.WriteAllTextAsync(scriptPath2, 
-                    "-- SQL Server Migration Script for AddOrderTable\\n" +
-                    "CREATE TABLE [Orders] (\\n" +
-                    "    [Id] INT NOT NULL IDENTITY(1,1),\\n" +
-                    "    [Date] DATETIME2 NOT NULL,\\n" +
-                    "    [CustomerId] INT NOT NULL,\\n" +
-                    "    CONSTRAINT [PK_Orders] PRIMARY KEY ([Id])\\n" +
+
+                await File.WriteAllTextAsync(scriptPath2,
+                    "-- SQL Server Migration Script for AddOrderTable\n" +
+                    "CREATE TABLE [Orders] (\n" +
+                    "    [Id] INT NOT NULL IDENTITY(1,1),\n" +
+                    "    [Date] DATETIME2 NOT NULL,\n" +
+                    "    [CustomerId] INT NOT NULL,\n" +
+                    "    CONSTRAINT [PK_Orders] PRIMARY KEY ([Id])\n" +
                     ");", cancellationToken);
-                
+
                 return new MigrationResult
                 {
                     Success = true,
@@ -284,7 +285,7 @@ namespace MaintainEase.DbMigrator.Plugins.SqlServer.Handlers
             catch (Exception ex)
             {
                 _logger?.LogError(ex, "Error generating migration scripts");
-                
+
                 return new MigrationResult
                 {
                     Success = false,
@@ -292,7 +293,7 @@ namespace MaintainEase.DbMigrator.Plugins.SqlServer.Handlers
                 };
             }
         }
-        
+
         /// <summary>
         /// Tests the database connection
         /// </summary>
@@ -300,19 +301,19 @@ namespace MaintainEase.DbMigrator.Plugins.SqlServer.Handlers
         {
             try
             {
-                _logger?.LogInformation("Testing connection to SQL Server: {ConnectionString}", 
+                _logger?.LogInformation("Testing connection to SQL Server: {ConnectionString}",
                     MaskConnectionString(request.ConnectionConfig.ConnectionString));
-                
+
                 // Create DB context options
                 var optionsBuilder = new DbContextOptionsBuilder();
                 optionsBuilder.UseSqlServer(request.ConnectionConfig.ConnectionString);
-                
+
                 await Task.Delay(500, cancellationToken); // Simulating connection test
-                
+
                 // In a real implementation, we would:
                 // 1. Create a DbContext using the options
                 // 2. Call context.Database.CanConnectAsync()
-                
+
                 return true;
             }
             catch (Exception ex)
@@ -321,7 +322,7 @@ namespace MaintainEase.DbMigrator.Plugins.SqlServer.Handlers
                 return false;
             }
         }
-        
+
         /// <summary>
         /// Creates a backup of the database
         /// </summary>
@@ -329,32 +330,32 @@ namespace MaintainEase.DbMigrator.Plugins.SqlServer.Handlers
         {
             // Create backup directory if it doesn't exist
             var backupDir = Path.Combine(
-                string.IsNullOrEmpty(request.OutputDirectory) 
-                    ? Directory.GetCurrentDirectory() 
-                    : request.OutputDirectory, 
+                string.IsNullOrEmpty(request.OutputDirectory)
+                    ? Directory.GetCurrentDirectory()
+                    : request.OutputDirectory,
                 "Backups");
-                
+
             if (!Directory.Exists(backupDir))
             {
                 Directory.CreateDirectory(backupDir);
             }
-            
+
             // Generate backup file name
             var databaseName = ExtractDatabaseName(request.ConnectionConfig.ConnectionString);
             var backupFileName = $"{databaseName}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.bak";
             var backupPath = Path.Combine(backupDir, backupFileName);
-            
+
             // In a real implementation, we would execute a SQL command like:
             // BACKUP DATABASE [{databaseName}] TO DISK = '{backupPath}' WITH FORMAT, INIT, NAME = '{databaseName}-Full Database Backup'
-            
+
             await Task.Delay(2000, cancellationToken); // Simulating backup operation
-            
+
             // Create a dummy backup file for demonstration
             await File.WriteAllTextAsync(backupPath, "This is a simulated database backup file.", cancellationToken);
-            
+
             return backupPath;
         }
-        
+
         /// <summary>
         /// Extracts the database name from the connection string
         /// </summary>
@@ -374,10 +375,10 @@ namespace MaintainEase.DbMigrator.Plugins.SqlServer.Handlers
                     }
                 }
             }
-            
+
             return "Database";
         }
-        
+
         /// <summary>
         /// Masks sensitive information in the connection string
         /// </summary>
@@ -385,17 +386,17 @@ namespace MaintainEase.DbMigrator.Plugins.SqlServer.Handlers
         {
             if (string.IsNullOrEmpty(connectionString))
                 return connectionString;
-                
+
             // Replace password with asterisks
             var maskedConnectionString = connectionString;
-            
+
             // Handle "Password=xxx" or "pwd=xxx"
             maskedConnectionString = System.Text.RegularExpressions.Regex.Replace(
-                maskedConnectionString, 
-                @"(Password|pwd)=([^;]*)", 
-                "=********", 
+                maskedConnectionString,
+                @"(Password|pwd)=([^;]*)",
+                "$1=********",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                
+
             return maskedConnectionString;
         }
     }

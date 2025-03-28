@@ -32,6 +32,8 @@ namespace MaintainEase.DbMigrator.Commands.Migration
         public string Provider { get; set; } = "SqlServer";
     }
 
+
+
     /// <summary>
     /// Command to create a new database migration
     /// </summary>

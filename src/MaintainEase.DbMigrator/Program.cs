@@ -11,6 +11,7 @@ using MaintainEase.DbMigrator.Configuration;
 using MaintainEase.DbMigrator.Services;
 using MaintainEase.DbMigrator.UI.ConsoleHelpers;
 using MaintainEase.DbMigrator.UI.Theme;
+using MaintainEase.DbMigrator.Plugins;
 
 namespace MaintainEase.DbMigrator;
 

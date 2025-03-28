@@ -131,7 +131,7 @@ namespace MaintainEase.DbMigrator.Contracts.Interfaces
         /// </summary>
         public string Script { get; set; }
     }
-    
+
     /// <summary>
     /// Status of the database migrations
     /// </summary>
@@ -141,45 +141,50 @@ namespace MaintainEase.DbMigrator.Contracts.Interfaces
         /// Gets or sets a value indicating whether there are pending migrations
         /// </summary>
         public bool HasPendingMigrations { get; set; }
-        
+
         /// <summary>
         /// Gets or sets the number of pending migrations
         /// </summary>
         public int PendingMigrationsCount { get; set; }
-        
+
         /// <summary>
         /// Gets or sets the pending migrations
         /// </summary>
         public List<MigrationInfo> PendingMigrations { get; set; } = new List<MigrationInfo>();
-        
+
         /// <summary>
         /// Gets or sets the applied migrations
         /// </summary>
         public List<MigrationInfo> AppliedMigrations { get; set; } = new List<MigrationInfo>();
-        
+
         /// <summary>
         /// Gets or sets when the last migration was applied
         /// </summary>
         public DateTime? LastMigrationDate { get; set; }
-        
+
         /// <summary>
         /// Gets or sets the name of the last migration
         /// </summary>
         public string LastMigrationName { get; set; }
-        
+
         /// <summary>
         /// Gets or sets the provider name
         /// </summary>
         public string ProviderName { get; set; }
-        
+
         /// <summary>
         /// Gets or sets the database name
         /// </summary>
         public string DatabaseName { get; set; }
-        
+
         /// <summary>
         /// Gets or sets the database version
         /// </summary>
         public string DatabaseVersion { get; set; }
+
+        /// <summary>
+        /// Gets or sets the error message if an operation failed
+        /// </summary>
+        public string ErrorMessage { get; set; }
     }
 }
