@@ -13,6 +13,7 @@ using MaintainEase.DbMigrator.Commands.Database;
 using MaintainEase.DbMigrator.Commands.Migration;
 using MaintainEase.DbMigrator.Commands;
 using System.Data;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace MaintainEase.DbMigrator.UI.Menus
 {
@@ -29,7 +30,28 @@ namespace MaintainEase.DbMigrator.UI.Menus
         {
             _appContext = appContext ?? throw new ArgumentNullException(nameof(appContext));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _commandContext = new CommandContext(new CommandTree(null)); // Empty command context for CLI commands
+
+            // Initialize command context with minimal command info
+            // Create a proper remaining arguments implementation
+            var remaining = new EmptyRemainingArguments();
+
+            _commandContext = new CommandContext(
+                Array.Empty<string>(),   // Empty command arguments
+                remaining,               // Properly implemented remaining arguments
+                "interactive",           // Command name for reference
+                null);                   // No parsed result
+        }
+
+        // Proper implementation of IRemainingArguments with correct return types
+        private class EmptyRemainingArguments : IRemainingArguments
+        {
+            // Parsed returns an empty lookup
+            public ILookup<string, string?> Parsed =>
+                Array.Empty<KeyValuePair<string, string?>>()
+                    .ToLookup(x => x.Key, x => x.Value);
+
+            // Raw returns an empty read-only list
+            public IReadOnlyList<string> Raw => Array.Empty<string>();
         }
 
         /// <summary>
@@ -64,7 +86,9 @@ namespace MaintainEase.DbMigrator.UI.Menus
         /// </summary>
         private void ShowStatus()
         {
-            var table = TableComponents.CreateTable("Application Status");
+            // Use DatabaseInfoTable which is pre-configured with "Property" and "Value" columns
+            var table = TableComponents.CreateDatabaseInfoTable("Application Status");
+
             table.AddRow("Environment", $"[cyan]{SafeMarkup.EscapeMarkup(_appContext.CurrentEnvironment)}[/]");
             table.AddRow("Database Provider", $"[cyan]{SafeMarkup.EscapeMarkup(_appContext.CurrentProvider)}[/]");
             table.AddRow("Current Tenant", $"[cyan]{SafeMarkup.EscapeMarkup(_appContext.CurrentTenant)}[/]");
@@ -203,8 +227,14 @@ namespace MaintainEase.DbMigrator.UI.Menus
                     Verbose = _appContext.IsDebugMode
                 };
 
-                var statusCommand = new StatusCommand(null); // ServiceProvider will be injected elsewhere
-                await statusCommand.ExecuteAsync(_commandContext, settings);
+                // Use the service provider from the application context
+                // instead of passing null to the constructor
+                using (var scope = Program.ServiceProvider.CreateScope())
+                {
+                    var serviceProvider = scope.ServiceProvider;
+                    var statusCommand = new StatusCommand(serviceProvider);
+                    await statusCommand.ExecuteAsync(_commandContext, settings);
+                }
             }
             catch (Exception ex)
             {
@@ -271,8 +301,13 @@ namespace MaintainEase.DbMigrator.UI.Menus
                     NoPrompt = false // Always prompt in interactive mode
                 };
 
-                var migrateCommand = new MigrateCommand(null); // ServiceProvider will be injected elsewhere
-                await migrateCommand.ExecuteAsync(_commandContext, settings);
+                // Use the service provider from Program class
+                using (var scope = Program.ServiceProvider.CreateScope())
+                {
+                    var serviceProvider = scope.ServiceProvider;
+                    var migrateCommand = new MigrateCommand(serviceProvider);
+                    await migrateCommand.ExecuteAsync(_commandContext, settings);
+                }
             }
             catch (Exception ex)
             {
@@ -630,7 +665,9 @@ namespace MaintainEase.DbMigrator.UI.Menus
         private void PressEnterToContinue()
         {
             AnsiConsole.WriteLine();
-            AnsiConsole.Prompt(new TextPrompt<string>("Press [Enter] to continue...").AllowEmpty());
+            // Use SafeMarkup to properly escape the brackets
+            AnsiConsole.Markup("Press [grey][[Enter]][/] to continue...");
+            Console.ReadLine(); // Simple ReadLine instead of Prompt
         }
     }
 }

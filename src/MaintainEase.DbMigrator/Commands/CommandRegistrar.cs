@@ -18,7 +18,9 @@ namespace MaintainEase.DbMigrator.Commands
         {
             // Create a type registrar for dependency injection
             var registrar = new TypeRegistrar(serviceProvider);
-            app.Configure(config =>
+
+            // Configure the command app with the type registrar
+            app.Configure( config =>
             {
                 // Set the application name and description
                 config.SetApplicationName("MaintainEase.DbMigrator");
@@ -35,9 +37,6 @@ namespace MaintainEase.DbMigrator.Commands
                 config.AddCommand<MigrateCommand>("migrate")
                     .WithDescription("Apply pending database migrations")
                     .WithExample(new[] { "migrate", "--environment", "Production", "--backup" });
-
-                // Use our type registrar for dependency injection
-                config.UseTypeRegistrar(registrar);
             });
         }
     }

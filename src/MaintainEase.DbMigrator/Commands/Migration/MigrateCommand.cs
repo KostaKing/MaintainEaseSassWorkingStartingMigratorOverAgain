@@ -136,9 +136,10 @@ namespace MaintainEase.DbMigrator.Commands.Migration
         {
             string backupPath = "";
 
-            await SpinnerComponents.WithSpinnerAsync(
+            // Fixed: Changed the delegate to use a proper function
+            await SpinnerComponents.WithStatusSpinnerAsync(
                 "Creating database backup...",
-                async ctx =>
+                async (ctx) =>
                 {
                     // Simulate backup creation
                     await Task.Delay(2000);

@@ -16,6 +16,9 @@ namespace MaintainEase.DbMigrator;
 
 public class Program
 {
+    // Add static property to access the service provider globally
+    public static ServiceProvider ServiceProvider { get; private set; }
+
     public static async Task<int> Main(string[] args)
     {
         try
@@ -27,10 +30,10 @@ public class Program
             var configuration = BuildConfiguration();
 
             // Configure services
-            var serviceProvider = ConfigureServices(configuration);
+            ServiceProvider = ConfigureServices(configuration);
 
             // Get application context
-            var appContext = serviceProvider.GetRequiredService<ApplicationContext>();
+            var appContext = ServiceProvider.GetRequiredService<ApplicationContext>();
             appContext.Initialize();
 
             // Determine if we're in CLI mode or interactive mode
@@ -39,12 +42,12 @@ public class Program
             if (isCliMode)
             {
                 // CLI mode - run the specified command
-                return await RunCommandLineMode(args, serviceProvider);
+                return await RunCommandLineMode(args, ServiceProvider);
             }
             else
             {
                 // Interactive mode - run the menu system
-                await RunInteractiveMode(serviceProvider);
+                await RunInteractiveMode(ServiceProvider);
                 return 0;
             }
         }
@@ -93,6 +96,10 @@ public class Program
 
         // Add services
         services.AddTransient<MenuService>();
+
+        // Add command classes
+        services.AddTransient<MaintainEase.DbMigrator.Commands.Database.StatusCommand>();
+        services.AddTransient<MaintainEase.DbMigrator.Commands.Migration.MigrateCommand>();
 
         // Build service provider
         return services.BuildServiceProvider();

@@ -67,7 +67,9 @@ namespace MaintainEase.DbMigrator.Commands.Database
                     "Database");
 
                 // Display status table
-                var table = TableComponents.CreateTable("Database Status");
+                // Use DatabaseInfoTable which already has Property and Value columns defined
+                var table = TableComponents.CreateDatabaseInfoTable("Database Status");
+
                 table.AddRow("Environment", $"[cyan]{SafeMarkup.EscapeMarkup(appContext.CurrentEnvironment)}[/]");
                 table.AddRow("Provider", $"[cyan]{SafeMarkup.EscapeMarkup(appContext.CurrentProvider)}[/]");
                 table.AddRow("Tenant", $"[cyan]{SafeMarkup.EscapeMarkup(appContext.CurrentTenant)}[/]");
