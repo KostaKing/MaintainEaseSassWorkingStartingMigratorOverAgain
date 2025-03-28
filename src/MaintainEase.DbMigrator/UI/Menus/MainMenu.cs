@@ -15,6 +15,7 @@ using MaintainEase.DbMigrator.Commands.Migration;
 using MaintainEase.DbMigrator.Commands;
 using System.Linq;
 using Microsoft.Extensions.DependencyInjection;
+using MaintainEase.DbMigrator.Plugins;
 
 namespace MaintainEase.DbMigrator.UI.Menus
 {
@@ -245,7 +246,7 @@ namespace MaintainEase.DbMigrator.UI.Menus
         }
 
         /// <summary>
-        /// Show the Migration Management menu
+        /// Show the Migration Management menu with added Create Migration functionality
         /// </summary>
         private async Task ShowMigrationMenuAsync()
         {
@@ -274,8 +275,10 @@ namespace MaintainEase.DbMigrator.UI.Menus
                 case "1": // Run Migrations
                     await ExecuteMigrateCommandAsync();
                     break;
+                case "3": // Create New Migration
+                    await ExecuteCreateMigrationCommandAsync();
+                    break;
                 case "2":
-                case "3":
                 case "4":
                 case "5":
                     DialogComponents.ShowInfo("Feature Coming Soon",
@@ -284,6 +287,56 @@ namespace MaintainEase.DbMigrator.UI.Menus
             }
 
             if (key != "0") PressEnterToContinue();
+        }
+
+        /// <summary>
+        /// Execute the create migration command
+        /// </summary>
+        private async Task ExecuteCreateMigrationCommandAsync()
+        {
+            try
+            {
+                // Prompt for a migration name
+                var migrationName = AnsiConsole.Prompt(
+                    new TextPrompt<string>("Enter migration name:")
+                        .DefaultValue($"Migration_{DateTime.UtcNow:yyyyMMdd_HHmmss}")
+                        .ValidationErrorMessage("[red]Migration name cannot be empty[/]")
+                        .Validate(name => string.IsNullOrWhiteSpace(name)
+                            ? ValidationResult.Error("Migration name cannot be empty")
+                            : ValidationResult.Success()));
+
+                // Prompt for provider selection
+                var providerOptions = new List<string> { "SqlServer", "PostgreSQL" };
+                var provider = AnsiConsole.Prompt(
+                    new SelectionPrompt<string>()
+                        .Title("Select database provider:")
+                        .PageSize(10)
+                        .HighlightStyle(SafeMarkup.Themes.PrimaryStyle)
+                        .AddChoices(providerOptions));
+
+                // Create settings for the command
+                var settings = new CreateMigrationCommandSettings
+                {
+                    Name = migrationName,
+                    Provider = provider,
+                    Environment = _appContext.CurrentEnvironment,
+                    Tenant = _appContext.CurrentTenant,
+                    Verbose = _appContext.IsDebugMode,
+                    OutputDirectory = Path.Combine(_appContext.WorkingDirectory, "Migrations")
+                };
+
+                // Use the service provider from Program class to get the command
+                using (var scope = Program.ServiceProvider.CreateScope())
+                {
+                    var createCommand = scope.ServiceProvider.GetRequiredService<CreateMigrationCommand>();
+                    await createCommand.ExecuteAsync(_commandContext, settings);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error executing create migration command");
+                DialogComponents.ShowException(ex, "Command Error");
+            }
         }
 
         /// <summary>
@@ -494,7 +547,8 @@ namespace MaintainEase.DbMigrator.UI.Menus
                 ["4"] = "Performance Dashboard",
                 ["5"] = "Tenant Comparison",
                 ["6"] = "Environment Health Check",
-                ["7"] = "All Demo Charts",
+                ["7"] = "Basic Visualization Demo",
+                ["8"] = "All Demo Charts",
                 ["0"] = "Back to Main Menu"
             };
 
@@ -522,6 +576,9 @@ namespace MaintainEase.DbMigrator.UI.Menus
                     ShowEnvironmentHealthCheck();
                     break;
                 case "7":
+                    ShowDemoVisualizations();
+                    break;
+                case "8":
                     ChartManager.ShowAllDemoCharts();
                     break;
                 case "0":
@@ -973,7 +1030,8 @@ namespace MaintainEase.DbMigrator.UI.Menus
                 ["2"] = "Configure Paths",
                 ["3"] = "User Preferences",
                 ["4"] = "Connection Settings",
-                ["5"] = "About Application",
+                ["5"] = "Test Plugin System",
+                ["6"] = "About Application",
                 ["0"] = "Back to Main Menu"
             };
 
@@ -985,6 +1043,13 @@ namespace MaintainEase.DbMigrator.UI.Menus
                 case "1":
                     await ChangeThemeAsync();
                     break;
+                case "5":
+                    await TestPluginSystemAsync();
+                    break;
+                case "6":
+                    ShowAboutDialog();
+                    PressEnterToContinue();
+                    break;
                 case "2":
                 case "3":
                 case "4":
@@ -992,11 +1057,29 @@ namespace MaintainEase.DbMigrator.UI.Menus
                         "This settings feature will be implemented in a future update.");
                     PressEnterToContinue();
                     break;
-                case "5":
-                    ShowAboutDialog();
-                    PressEnterToContinue();
-                    break;
             }
+        }
+
+        /// <summary>
+        /// Run a test of the plugin system
+        /// </summary>
+        private async Task TestPluginSystemAsync()
+        {
+            try
+            {
+                using var scope = Program.ServiceProvider.CreateScope();
+                var pluginService = scope.ServiceProvider.GetRequiredService<PluginService>();
+
+                // Run the plugin system test
+                await PluginTester.RunPluginSystemTest(pluginService, _logger);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error testing plugin system");
+                DialogComponents.ShowException(ex, "Plugin Test Error");
+            }
+
+            PressEnterToContinue();
         }
 
         /// <summary>

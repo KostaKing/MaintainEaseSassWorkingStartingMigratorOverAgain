@@ -20,7 +20,7 @@ namespace MaintainEase.DbMigrator.Commands
             var registrar = new TypeRegistrar(serviceProvider);
 
             // Configure the command app with the type registrar
-            app.Configure( config =>
+            app.Configure(config =>
             {
                 // Set the application name and description
                 config.SetApplicationName("MaintainEase.DbMigrator");
@@ -37,6 +37,11 @@ namespace MaintainEase.DbMigrator.Commands
                 config.AddCommand<MigrateCommand>("migrate")
                     .WithDescription("Apply pending database migrations")
                     .WithExample(new[] { "migrate", "--environment", "Production", "--backup" });
+
+                // Add CreateMigrationCommand 
+                config.AddCommand<CreateMigrationCommand>("create")
+                    .WithDescription("Create a new database migration")
+                    .WithExample(new[] { "create", "AddUserTable", "--provider", "PostgreSQL" });
             });
         }
     }

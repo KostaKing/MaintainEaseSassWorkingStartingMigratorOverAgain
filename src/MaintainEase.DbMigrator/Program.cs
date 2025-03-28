@@ -30,8 +30,13 @@ public class Program
             // Create configuration
             var configuration = BuildConfiguration();
 
+
+
             // Configure services
             ServiceProvider = ConfigureServices(configuration);
+
+            // Now that service provider is available, ensure application directories are properly initialized
+            Plugins.Helpers.EnsureRequiredDirectories(ServiceProvider);
 
             // Get application context
             var appContext = ServiceProvider.GetRequiredService<ApplicationContext>();
@@ -97,16 +102,14 @@ public class Program
 
         // Add services
         services.AddTransient<MenuService>();
+
         // Add migration plugins
         services.AddMigrationPlugins(Path.Combine(Directory.GetCurrentDirectory(), "Plugins"));
 
         // Add command classes
         services.AddTransient<MaintainEase.DbMigrator.Commands.Database.StatusCommand>();
-        // Add migration plugins
-        services.AddMigrationPlugins(Path.Combine(Directory.GetCurrentDirectory(), "Plugins"));
         services.AddTransient<MaintainEase.DbMigrator.Commands.Migration.MigrateCommand>();
-        // Add migration plugins
-        services.AddMigrationPlugins(Path.Combine(Directory.GetCurrentDirectory(), "Plugins"));
+        services.AddTransient<MaintainEase.DbMigrator.Commands.Migration.CreateMigrationCommand>();
 
         // Build service provider
         return services.BuildServiceProvider();
