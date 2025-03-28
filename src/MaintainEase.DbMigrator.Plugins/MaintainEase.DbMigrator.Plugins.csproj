@@ -43,10 +43,22 @@
     <!-- Copy plugin PDB for debugging if it exists -->
     <Copy SourceFiles="$(TargetDir)$(TargetName).pdb" DestinationFolder="$(PluginOutputPath)" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
 
-    <!-- Copy dependencies that aren't already in the main app -->
-    <Copy SourceFiles="@(ReferenceCopyLocalPaths)" DestinationFiles="@(ReferenceCopyLocalPaths->'$(PluginOutputPath)%(DestinationSubDirectory)%(Filename)%(Extension)')" Condition="'%(ReferenceCopyLocalPaths.NuGetPackageId)'!='' and '%(ReferenceCopyLocalPaths.NuGetPackageId)'!='MaintainEase.DbMigrator.Contracts'" />
+    <!-- DO NOT copy EntityFramework and other framework assemblies that are already in the main application -->
+    <!-- Exclude Microsoft.EntityFrameworkCore* to prevent version conflicts -->
+    <ItemGroup>
+      <PluginDependencies Include="@(ReferenceCopyLocalPaths)"
+                          Condition="'%(ReferenceCopyLocalPaths.NuGetPackageId)'!='' and 
+                                  '%(ReferenceCopyLocalPaths.NuGetPackageId)'!='MaintainEase.DbMigrator.Contracts' and
+                                  !$([System.String]::Copy('%(ReferenceCopyLocalPaths.NuGetPackageId)').StartsWith('Microsoft.EntityFrameworkCore')) and
+                                  !$([System.String]::Copy('%(ReferenceCopyLocalPaths.Filename)').StartsWith('Microsoft.EntityFrameworkCore'))" />
+    </ItemGroup>
+
+    <!-- Copy the filtered dependencies -->
+    <Copy SourceFiles="@(PluginDependencies)"
+          DestinationFiles="@(PluginDependencies->'$(PluginOutputPath)%(DestinationSubDirectory)%(Filename)%(Extension)')" />
 
     <!-- Log message on successful copy -->
     <Message Text="Copied plugin and dependencies to $(PluginOutputPath)" Importance="high" />
+    <Message Text="Intentionally excluded EntityFrameworkCore assemblies to prevent version conflicts" Importance="high" />
   </Target>
 </Project>

@@ -155,7 +155,7 @@ namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins.Handlers
         }
 
         /// <summary>
-        /// Gets the migration status
+        /// Gets migration status without directly creating EF Core objects
         /// </summary>
         public async Task<MigrationStatus> GetStatusAsync(MigrationRequest request, CancellationToken cancellationToken = default)
         {
@@ -164,54 +164,53 @@ namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins.Handlers
                 _logger?.LogInformation("Getting migration status using connection string: {ConnectionString}",
                     MaskConnectionString(request.ConnectionConfig.ConnectionString));
 
-                // Create DB context options
-                var optionsBuilder = new DbContextOptionsBuilder();
-                optionsBuilder.UseSqlServer(request.ConnectionConfig.ConnectionString);
+                // Instead of directly creating DbContextOptionsBuilder, which triggers assembly loading,
+                // we'll use a more controlled approach or just return simulated data for now
+
+                // IMPORTANT: We're avoiding direct use of EF Core APIs here to prevent assembly loading issues
+                // In a real implementation, you'd use a factory pattern or dependency injection to handle this
 
                 await Task.Delay(500, cancellationToken); // Simulating work
 
-                // In a real implementation, we would:
-                // 1. Create a DbContext using the options
-                // 2. Call context.Database.GetPendingMigrationsAsync() and context.Database.GetAppliedMigrationsAsync()
-
+                // Return simulated data
                 return new MigrationStatus
                 {
                     HasPendingMigrations = true,
                     PendingMigrationsCount = 2,
                     PendingMigrations = new List<MigrationInfo>
-                    {
-                        new MigrationInfo
-                        {
-                            Id = "20230803140000",
-                            Name = "AddProductTable"
-                        },
-                        new MigrationInfo
-                        {
-                            Id = "20230804150000",
-                            Name = "AddOrderTable"
-                        }
-                    },
+            {
+                new MigrationInfo
+                {
+                    Id = "20230803140000",
+                    Name = "AddProductTable"
+                },
+                new MigrationInfo
+                {
+                    Id = "20230804150000",
+                    Name = "AddOrderTable"
+                }
+            },
                     AppliedMigrations = new List<MigrationInfo>
-                    {
-                        new MigrationInfo
-                        {
-                            Id = "20230801120000",
-                            Name = "InitialMigration",
-                            AppliedOn = DateTime.UtcNow.AddDays(-5)
-                        },
-                        new MigrationInfo
-                        {
-                            Id = "20230802130000",
-                            Name = "AddUserTable",
-                            AppliedOn = DateTime.UtcNow.AddDays(-3)
-                        }
-                    },
+            {
+                new MigrationInfo
+                {
+                    Id = "20230801120000",
+                    Name = "InitialMigration",
+                    AppliedOn = DateTime.UtcNow.AddDays(-5)
+                },
+                new MigrationInfo
+                {
+                    Id = "20230802130000",
+                    Name = "AddUserTable",
+                    AppliedOn = DateTime.UtcNow.AddDays(-3)
+                }
+            },
                     LastMigrationDate = DateTime.UtcNow.AddDays(-3),
                     LastMigrationName = "AddUserTable",
                     ProviderName = "SqlServer",
                     DatabaseName = "TestDatabase",
                     DatabaseVersion = "SQL Server 2019",
-                    ErrorMessage = null // Added this property
+                    ErrorMessage = null
                 };
             }
             catch (Exception ex)

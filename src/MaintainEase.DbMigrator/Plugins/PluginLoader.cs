@@ -76,68 +76,107 @@ namespace MaintainEase.DbMigrator.Plugins
             if (_isInitialized)
                 return;
 
-            _logger.LogInformation("Initializing plugin loader");
+            _logger.LogInformation("********************************************");
+            _logger.LogInformation("*       INITIALIZING PLUGIN LOADER         *");
+            _logger.LogInformation("********************************************");
 
-            // If no plugin path specified, use the default
-            if (string.IsNullOrEmpty(pluginsPath))
+            try
             {
-                pluginsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Plugins");
-            }
+                // Run diagnostics to help troubleshoot plugin loading issues
+                PluginDiagnosticHelper.LogDiagnosticInfo(_logger);
 
-            _logger.LogInformation("Looking for plugins in {PluginsPath}", pluginsPath);
-
-            // Create plugins directory if it doesn't exist
-            if (!Directory.Exists(pluginsPath))
-            {
-                _logger.LogInformation("Creating plugins directory: {PluginsPath}", pluginsPath);
-                Directory.CreateDirectory(pluginsPath);
-            }
-
-            // Load plugins from embedded resources
-            LoadEmbeddedPlugins();
-
-            // Look for plugin assemblies in the plugins directory
-            if (Directory.Exists(pluginsPath))
-            {
-                // Only target files that follow our plugin naming convention
-                var pluginFiles = Directory.GetFiles(pluginsPath, "MaintainEase.DbMigrator.Plugins*.dll");
-                _logger.LogInformation("Found {Count} potential plugin files", pluginFiles.Length);
-
-                foreach (var file in pluginFiles)
+                // If no plugin path specified, use the default
+                if (string.IsNullOrEmpty(pluginsPath))
                 {
-                    _logger.LogDebug("Processing plugin file: {FileName}", Path.GetFileName(file));
-                    try
-                    {
-                        LoadPluginFromFile(file);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Error loading plugin from {PluginFile}", file);
-                    }
+                    pluginsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Plugins");
                 }
-            }
-            else
-            {
-                _logger.LogWarning("Plugins directory does not exist: {PluginsPath}", pluginsPath);
-            }
 
-            // If no plugins were loaded, try to create default plugins
-            if (_plugins.Count == 0)
-            {
-                _logger.LogWarning("No plugins loaded. Adding fallback plugins.");
-                AddFallbackPlugins();
+                _logger.LogInformation("Looking for plugins in {PluginsPath}", pluginsPath);
+                _logger.LogInformation("Plugin path exists: {Exists}", Directory.Exists(pluginsPath));
+
+                // Create plugins directory if it doesn't exist
+                if (!Directory.Exists(pluginsPath))
+                {
+                    _logger.LogInformation("Creating plugins directory: {PluginsPath}", pluginsPath);
+                    Directory.CreateDirectory(pluginsPath);
+                }
+
+                // Load plugins from embedded resources
+                _logger.LogInformation("Attempting to load embedded plugins...");
+                int beforeCount = _plugins.Count;
+                LoadEmbeddedPlugins();
+                _logger.LogInformation("Embedded plugins loaded: {Count}", _plugins.Count - beforeCount);
+
+                // Look for plugin assemblies in the plugins directory
+                if (Directory.Exists(pluginsPath))
+                {
+                    // List all files for diagnostics
+                    var allFiles = Directory.GetFiles(pluginsPath);
+                    _logger.LogInformation("All files in plugin directory ({Count}):", allFiles.Length);
+                    foreach (var file in allFiles)
+                    {
+                        _logger.LogInformation("  - {File}", Path.GetFileName(file));
+                    }
+
+                    // Look for all DLLs first for better diagnostics
+                    var allDlls = Directory.GetFiles(pluginsPath, "*.dll");
+                    _logger.LogInformation("Found {Count} total DLL files in plugins directory", allDlls.Length);
+
+                    // Only target files that follow our plugin naming convention
+                    var pluginFiles = Directory.GetFiles(pluginsPath, "MaintainEase.DbMigrator.Plugins*.dll");
+                    _logger.LogInformation("Found {Count} potential plugin files matching naming pattern", pluginFiles.Length);
+
+                    beforeCount = _plugins.Count;
+                    foreach (var file in pluginFiles)
+                    {
+                        _logger.LogInformation("Attempting to load plugin from: {FileName}", Path.GetFileName(file));
+                        try
+                        {
+                            LoadPluginFromFile(file);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Error loading plugin from {PluginFile}", file);
+                        }
+                    }
+                    _logger.LogInformation("Plugins loaded from directory: {Count}", _plugins.Count - beforeCount);
+                }
+                else
+                {
+                    _logger.LogWarning("Plugins directory does not exist: {PluginsPath}", pluginsPath);
+                }
+
+                // If no plugins were loaded, try to create default plugins
+                if (_plugins.Count == 0)
+                {
+                    _logger.LogWarning("No plugins loaded. Adding fallback plugins.");
+                    AddFallbackPlugins();
+                    _logger.LogInformation("Fallback plugins added: {Count}", _plugins.Count);
+                }
+
+                _isInitialized = true;
+                _logger.LogInformation("Plugin loader initialized with {Count} plugins", _plugins.Count);
+
+                // Log the loaded plugins
+                foreach (var plugin in _plugins)
+                {
+                    _logger.LogInformation("  - Loaded plugin: {Name} ({ProviderType})", plugin.Name, plugin.ProviderType);
+                }
+
+                _logger.LogInformation("********************************************");
             }
-
-            _isInitialized = true;
-            _logger.LogInformation("Plugin loader initialized with {Count} plugins", _plugins.Count);
-
-            // Log the loaded plugins
-            foreach (var plugin in _plugins)
+            catch (Exception ex)
             {
-                _logger.LogInformation("Loaded plugin: {Name} ({ProviderType})", plugin.Name, plugin.ProviderType);
+                _logger.LogError(ex, "Error initializing plugin loader");
+                // Still add fallback plugins if an error occurs
+                if (_plugins.Count == 0)
+                {
+                    _logger.LogWarning("Error during initialization. Adding fallback plugins.");
+                    AddFallbackPlugins();
+                }
+                _isInitialized = true; // Prevent repeated initialization attempts
             }
         }
-
 
         /// <summary>
         /// Load plugins directly embedded in the application
@@ -207,22 +246,24 @@ namespace MaintainEase.DbMigrator.Plugins
         }
 
         /// <summary>
-        /// Load a plugin from a file
+        /// Load a plugin from a file - enhanced version with better file filtering
         /// </summary>
         private void LoadPluginFromFile(string pluginFile)
         {
-            _logger.LogInformation("Loading plugins from {PluginFile}", pluginFile);
+            _logger.LogInformation("Evaluating potential plugin file: {PluginFile}", pluginFile);
 
             try
             {
                 var fileName = Path.GetFileName(pluginFile);
 
                 // Safety check - only load our plugin assemblies
-                if (!fileName.StartsWith("MaintainEase.DbMigrator.Plugins"))
+                if (!fileName.StartsWith("MaintainEase.DbMigrator.Plugins", StringComparison.OrdinalIgnoreCase))
                 {
                     _logger.LogWarning("Skipping non-plugin assembly: {FileName}", fileName);
                     return;
                 }
+
+                _logger.LogInformation("Loading plugin from {PluginFile}", pluginFile);
 
                 // Load the assembly
                 var pluginAssembly = Assembly.LoadFrom(pluginFile);
@@ -235,7 +276,7 @@ namespace MaintainEase.DbMigrator.Plugins
             }
             catch (BadImageFormatException ex)
             {
-                _logger.LogError(ex, "Not a valid .NET assembly: {PluginFile}", pluginFile);
+                _logger.LogError(ex, "Not a valid .NET assembly or wrong architecture: {PluginFile}", pluginFile);
             }
             catch (Exception ex)
             {

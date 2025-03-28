@@ -122,6 +122,8 @@ public class Program
         // Add migration plugins
         services.AddMigrationPlugins(Path.Combine(Directory.GetCurrentDirectory(), "Plugins"));
 
+
+
         // Add migration helper
         services.AddTransient<MigrationHelper>();
 
