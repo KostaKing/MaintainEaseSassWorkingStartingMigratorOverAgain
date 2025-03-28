@@ -22,9 +22,17 @@ namespace MaintainEase.DbMigrator.UI.Components
                 .BorderStyle(new Style(Color.Blue))
                 .Title($"[bold blue]{SafeMarkup.EscapeMarkup(title)}[/]");
 
-            foreach (var column in columns)
+            // Always ensure at least one column exists
+            if (columns == null || columns.Length == 0)
             {
-                table.AddColumn(new TableColumn(SafeMarkup.EscapeMarkup(column)).Centered());
+                table.AddColumn(new TableColumn("Value").Centered());
+            }
+            else
+            {
+                foreach (var column in columns)
+                {
+                    table.AddColumn(new TableColumn(SafeMarkup.EscapeMarkup(column)).Centered());
+                }
             }
 
             return table;
@@ -36,11 +44,81 @@ namespace MaintainEase.DbMigrator.UI.Components
         public static void AddStatusRow(this Table table, string item, bool success, string message = null)
         {
             string status = success ? "[green]Success[/]" : "[red]Failed[/]";
-            table.AddRow(
-                new Text(SafeMarkup.EscapeMarkup(item)),
-                new Markup(status),
-                new Text(SafeMarkup.EscapeMarkup(message ?? string.Empty))
-            );
+
+            // Handle different table column counts
+            if (table.Columns.Count == 1)
+            {
+                table.AddRow(new Text($"{SafeMarkup.EscapeMarkup(item)}: {status} {(message != null ? $"- {SafeMarkup.EscapeMarkup(message)}" : "")}"));
+            }
+            else if (table.Columns.Count == 2)
+            {
+                table.AddRow(
+                    new Text(SafeMarkup.EscapeMarkup(item)),
+                    new Markup($"{status} {(message != null ? $"- {SafeMarkup.EscapeMarkup(message)}" : "")}")
+                );
+            }
+            else
+            {
+                table.AddRow(
+                    new Text(SafeMarkup.EscapeMarkup(item)),
+                    new Markup(status),
+                    new Text(SafeMarkup.EscapeMarkup(message ?? string.Empty))
+                );
+            }
+        }
+
+        /// <summary>
+        /// Add a row to a table, adapting to the number of columns in the table
+        /// </summary>
+        public static void AddSafeRow(this Table table, params string[] values)
+        {
+            if (values == null || values.Length == 0)
+            {
+                return;
+            }
+
+            // If too many values, truncate to match column count
+            // If too few values, pad with empty strings
+            var renderables = new List<IRenderable>();
+
+            for (int i = 0; i < table.Columns.Count; i++)
+            {
+                if (i < values.Length)
+                {
+                    renderables.Add(new Markup(values[i]));
+                }
+                else
+                {
+                    renderables.Add(new Text(string.Empty));
+                }
+            }
+
+            table.AddRow(renderables);
+        }
+
+        /// <summary>
+        /// Add a row with a property and value to a table, adapting to the table's column structure
+        /// </summary>
+        public static void AddPropertyRow(this Table table, string property, string value)
+        {
+            if (table.Columns.Count == 1)
+            {
+                table.AddRow(new Text($"{SafeMarkup.EscapeMarkup(property)}: {SafeMarkup.EscapeMarkup(value)}"));
+            }
+            else
+            {
+                // Just use the first two columns for property and value
+                var row = new IRenderable[table.Columns.Count];
+                row[0] = new Text(SafeMarkup.EscapeMarkup(property));
+                row[1] = new Markup(SafeMarkup.EscapeMarkup(value));
+
+                for (int i = 2; i < table.Columns.Count; i++)
+                {
+                    row[i] = new Text(string.Empty);
+                }
+
+                table.AddRow(row);
+            }
         }
 
         /// <summary>
@@ -48,17 +126,42 @@ namespace MaintainEase.DbMigrator.UI.Components
         /// </summary>
         public static void AddStatusRow(this Table table, string item, string status, string statusColor, string message = null)
         {
-            table.AddRow(
-                new Text(SafeMarkup.EscapeMarkup(item)),
-                new Markup($"[{statusColor}]{SafeMarkup.EscapeMarkup(status)}[/]"),
-                new Text(SafeMarkup.EscapeMarkup(message ?? string.Empty))
-            );
+            // Handle different table column counts
+            if (table.Columns.Count == 1)
+            {
+                table.AddRow(new Text($"{SafeMarkup.EscapeMarkup(item)}: [{statusColor}]{SafeMarkup.EscapeMarkup(status)}[/] {(message != null ? $"- {SafeMarkup.EscapeMarkup(message)}" : "")}"));
+            }
+            else if (table.Columns.Count == 2)
+            {
+                table.AddRow(
+                    new Text(SafeMarkup.EscapeMarkup(item)),
+                    new Markup($"[{statusColor}]{SafeMarkup.EscapeMarkup(status)}[/] {(message != null ? $"- {SafeMarkup.EscapeMarkup(message)}" : "")}")
+                );
+            }
+            else
+            {
+                table.AddRow(
+                    new Text(SafeMarkup.EscapeMarkup(item)),
+                    new Markup($"[{statusColor}]{SafeMarkup.EscapeMarkup(status)}[/]"),
+                    new Text(SafeMarkup.EscapeMarkup(message ?? string.Empty))
+                );
+            }
         }
 
         /// <summary>
         /// Create a database information table with standard fields
         /// </summary>
         public static Table CreateDatabaseInfoTable(string title = "Database Information")
+        {
+            var table = CreateTable(title, "Property", "Value");
+            table.Expand();
+            return table;
+        }
+
+        /// <summary>
+        /// Create a key-value table for displaying property-value pairs
+        /// </summary>
+        public static Table CreatePropertyTable(string title = "Properties")
         {
             var table = CreateTable(title, "Property", "Value");
             table.Expand();
@@ -110,7 +213,20 @@ namespace MaintainEase.DbMigrator.UI.Components
         /// </summary>
         public static void AddHeaderRow(this Table table, params string[] values)
         {
-            var markupValues = values.Select(v => new Markup($"[bold]{SafeMarkup.EscapeMarkup(v)}[/]")).ToArray();
+            var markupValues = new List<IRenderable>();
+
+            // Only use as many values as there are columns
+            for (int i = 0; i < Math.Min(values.Length, table.Columns.Count); i++)
+            {
+                markupValues.Add(new Markup($"[bold]{SafeMarkup.EscapeMarkup(values[i])}[/]"));
+            }
+
+            // Fill any remaining columns
+            while (markupValues.Count < table.Columns.Count)
+            {
+                markupValues.Add(new Text(string.Empty));
+            }
+
             table.AddRow(markupValues);
         }
 
@@ -119,14 +235,23 @@ namespace MaintainEase.DbMigrator.UI.Components
         /// </summary>
         public static void AddSeparatorRow(this Table table, int columnCount)
         {
-            string[] separators = new string[columnCount];
-            for (int i = 0; i < columnCount; i++)
+            int columns = Math.Min(columnCount, table.Columns.Count);
+            string[] separators = new string[columns];
+            for (int i = 0; i < columns; i++)
             {
                 separators[i] = new string('─', 10);
             }
-            
+
             var markupValues = separators.Select(v => new Markup($"[grey]{v}[/]")).ToArray();
-            table.AddRow(markupValues);
+
+            // Fill any remaining columns
+            var finalValues = new List<IRenderable>(markupValues);
+            while (finalValues.Count < table.Columns.Count)
+            {
+                finalValues.Add(new Text(string.Empty));
+            }
+
+            table.AddRow(finalValues);
         }
 
         /// <summary>
@@ -134,20 +259,17 @@ namespace MaintainEase.DbMigrator.UI.Components
         /// </summary>
         public static void DisplayObject<T>(T obj, string title, bool expand = true)
         {
-            var table = CreateTable(title, "Property", "Value");
+            var table = CreatePropertyTable(title);
             if (expand) table.Expand();
-            
+
             foreach (var prop in typeof(T).GetProperties())
             {
                 var value = prop.GetValue(obj);
                 var displayValue = value?.ToString() ?? "null";
-                
-                table.AddRow(
-                    new Text(SafeMarkup.EscapeMarkup(prop.Name)),
-                    new Text(SafeMarkup.EscapeMarkup(displayValue))
-                );
+
+                table.AddPropertyRow(prop.Name, displayValue);
             }
-            
+
             AnsiConsole.Write(table);
         }
 
@@ -162,19 +284,19 @@ namespace MaintainEase.DbMigrator.UI.Components
                 SafeMarkup.Info($"No items to display in '{title}'");
                 return;
             }
-            
+
             // Create table headers
             string[] headers = columns.Select(c => c.Header).ToArray();
             var table = CreateTable(title, headers);
             if (expand) table.Expand();
-            
+
             // Add rows
             foreach (var item in collection)
             {
                 var rowValues = columns.Select(c => new Text(SafeMarkup.EscapeMarkup(c.ValueSelector(item) ?? "null"))).ToArray();
                 table.AddRow(rowValues);
             }
-            
+
             AnsiConsole.Write(table);
         }
 
@@ -215,8 +337,8 @@ namespace MaintainEase.DbMigrator.UI.Components
         /// Create a heatmap table visualizing numeric data with color gradients
         /// </summary>
         public static Table CreateHeatmapTable<T>(
-            string title, 
-            IEnumerable<T> data, 
+            string title,
+            IEnumerable<T> data,
             (string Header, Func<T, string> LabelSelector) rowLabels,
             params (string Header, Func<T, double> ValueSelector)[] columns)
         {
@@ -224,11 +346,11 @@ namespace MaintainEase.DbMigrator.UI.Components
             string[] headers = new[] { rowLabels.Header }.Concat(columns.Select(c => c.Header)).ToArray();
             var table = CreateTable(title, headers);
             table.Expand();
-            
+
             // Find min and max values for color scaling
             double minValue = double.MaxValue;
             double maxValue = double.MinValue;
-            
+
             foreach (var item in data)
             {
                 foreach (var column in columns)
@@ -238,7 +360,7 @@ namespace MaintainEase.DbMigrator.UI.Components
                     maxValue = Math.Max(maxValue, value);
                 }
             }
-            
+
             // Add rows with heatmap coloring
             foreach (var item in data)
             {
@@ -246,30 +368,30 @@ namespace MaintainEase.DbMigrator.UI.Components
                 {
                     new Text(SafeMarkup.EscapeMarkup(rowLabels.LabelSelector(item)))
                 };
-                
+
                 foreach (var column in columns)
                 {
                     double value = column.ValueSelector(item);
                     string formattedValue = value.ToString("0.##");
-                    
+
                     // Calculate color based on value relative to min/max range
                     var color = GetHeatmapColor(value, minValue, maxValue);
                     rowValues.Add(new Markup($"[{color}]{formattedValue}[/]"));
                 }
-                
+
                 table.AddRow(rowValues.ToArray());
             }
-            
+
             return table;
         }
 
         private static string GetHeatmapColor(double value, double min, double max)
         {
             if (min == max) return "green";
-            
+
             // Calculate where this value falls in the range from 0 to 1
             double normalized = (value - min) / (max - min);
-            
+
             // Assign colors based on the normalized value
             return normalized switch
             {
