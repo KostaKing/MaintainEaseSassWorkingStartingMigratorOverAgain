@@ -30,14 +30,36 @@ namespace MaintainEase.DbMigrator.UI.ConsoleHelpers
         // UI themes for consistent styling
         public static class Themes
         {
-            public static readonly Style PrimaryStyle = new Style(Color.Blue, Color.Default, Decoration.Bold);
-            public static readonly Style SuccessStyle = new Style(Color.Green, Color.Default, Decoration.Bold);
-            public static readonly Style WarningStyle = new Style(Color.Yellow, Color.Default, Decoration.Bold);
-            public static readonly Style DangerStyle = new Style(Color.Red, Color.Default, Decoration.Bold);
-            public static readonly Style InfoStyle = new Style(Color.Cyan1, Color.Default, Decoration.Bold);
-            public static readonly Style MutedStyle = new Style(Color.Grey, Color.Default, Decoration.None);
-            public static readonly Style HighlightStyle = new Style(Color.Magenta1, Color.Default, Decoration.Bold);
+            public static Style PrimaryStyle { get; private set; } = new Style(Color.Blue, Color.Default, Decoration.Bold);
+            public static Style SuccessStyle { get; private set; } = new Style(Color.Green, Color.Default, Decoration.Bold);
+            public static Style WarningStyle { get; private set; } = new Style(Color.Yellow, Color.Default, Decoration.Bold);
+            public static Style DangerStyle { get; private set; } = new Style(Color.Red, Color.Default, Decoration.Bold);
+            public static Style InfoStyle { get; private set; } = new Style(Color.Cyan1, Color.Default, Decoration.Bold);
+            public static Style MutedStyle { get; private set; } = new Style(Color.Grey, Color.Default, Decoration.None);
+            public static Style HighlightStyle { get; private set; } = new Style(Color.Magenta1, Color.Default, Decoration.Bold);
+
+            public static void UpdateStyles(
+            Style primaryStyle,
+            Style successStyle,
+            Style warningStyle,
+            Style dangerStyle,
+            Style infoStyle,
+            Style mutedStyle,
+            Style highlightStyle)
+            {
+                PrimaryStyle = primaryStyle;
+                SuccessStyle = successStyle;
+                WarningStyle = warningStyle;
+                DangerStyle = dangerStyle;
+                InfoStyle = infoStyle;
+                MutedStyle = mutedStyle;
+                HighlightStyle = highlightStyle;
+            }
         }
+
+
+
+
 
         /// <summary>
         /// Initialize with a logger

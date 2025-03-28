@@ -17,12 +17,12 @@ namespace MaintainEase.DbMigrator.UI.Components
         /// Process multiple operations with a progress bar
         /// </summary>
         public static async Task ProcessWithProgressAsync<T>(
-            IEnumerable<T> items, 
-            Func<T, Task> processor, 
+            IEnumerable<T> items,
+            Func<T, Task> processor,
             string title = "Processing items...")
         {
             var itemsList = items.ToList(); // Materialize to get count
-            
+
             await AnsiConsole.Progress()
                 .AutoClear(false)
                 .HideCompleted(false)
@@ -43,12 +43,12 @@ namespace MaintainEase.DbMigrator.UI.Components
                     // Process each item
                     int completed = 0;
                     int failed = 0;
-                    
+
                     foreach (var item in itemsList)
                     {
                         string itemDescription = item.ToString();
                         var itemTask = ctx.AddTask(SafeMarkup.EscapeMarkup($"Processing {itemDescription}"));
-                        
+
                         try
                         {
                             await processor(item);
@@ -62,11 +62,11 @@ namespace MaintainEase.DbMigrator.UI.Components
                             itemTask.Description = $"[red]{SafeMarkup.EscapeMarkup(itemDescription)} - Failed: {SafeMarkup.EscapeMarkup(ex.Message)}[/]";
                             failed++;
                         }
-                        
+
                         // Update main task
                         mainTask.Increment(1);
                     }
-                    
+
                     // Update the main task description with the summary
                     mainTask.Description = $"{SafeMarkup.EscapeMarkup(title)} - " +
                         $"Completed: [green]{completed}[/], Failed: [red]{failed}[/], Total: {itemsList.Count}";
@@ -77,14 +77,14 @@ namespace MaintainEase.DbMigrator.UI.Components
         /// Process operations in parallel with a progress bar (up to maxParallel concurrent operations)
         /// </summary>
         public static async Task ProcessParallelWithProgressAsync<T>(
-            IEnumerable<T> items, 
-            Func<T, Task> processor, 
+            IEnumerable<T> items,
+            Func<T, Task> processor,
             int maxParallel = 4,
             string title = "Processing items in parallel...")
         {
             var itemsList = items.ToList(); // Materialize to get count
             var semaphore = new System.Threading.SemaphoreSlim(maxParallel);
-            
+
             await AnsiConsole.Progress()
                 .AutoClear(false)
                 .HideCompleted(false)
@@ -101,10 +101,10 @@ namespace MaintainEase.DbMigrator.UI.Components
                     // Create the main task
                     var mainTask = ctx.AddTask(SafeMarkup.EscapeMarkup(title));
                     mainTask.MaxValue = itemsList.Count;
-                    
+
                     // Create task tracking dictionary
                     var taskDict = new Dictionary<T, ProgressTask>();
-                    
+
                     // Create all tasks first
                     foreach (var item in itemsList)
                     {
@@ -114,18 +114,18 @@ namespace MaintainEase.DbMigrator.UI.Components
                         itemTask.MaxValue = 1;
                         taskDict[item] = itemTask;
                     }
-                    
+
                     // Process items with limited parallelism
                     var tasks = new List<Task>();
                     foreach (var item in itemsList)
                     {
                         await semaphore.WaitAsync();
-                        
+
                         tasks.Add(Task.Run(async () =>
                         {
                             var itemTask = taskDict[item];
                             string itemDescription = item.ToString();
-                            
+
                             try
                             {
                                 itemTask.Description = $"Processing {SafeMarkup.EscapeMarkup(itemDescription)}";
@@ -146,7 +146,7 @@ namespace MaintainEase.DbMigrator.UI.Components
                             }
                         }));
                     }
-                    
+
                     // Wait for all tasks to complete
                     await Task.WhenAll(tasks);
                 });
@@ -162,7 +162,7 @@ namespace MaintainEase.DbMigrator.UI.Components
             string operationType = "Processing")
         {
             long result = 0;
-            
+
             await AnsiConsole.Progress()
                 .Columns(new ProgressColumn[]
                 {
@@ -177,12 +177,12 @@ namespace MaintainEase.DbMigrator.UI.Components
                 .StartAsync(async ctx =>
                 {
                     ProgressTask task = ctx.AddTask(
-                        $"[cyan]{SafeMarkup.EscapeMarkup(operationType)} {SafeMarkup.EscapeMarkup(fileName)}[/]", 
+                        $"[cyan]{SafeMarkup.EscapeMarkup(operationType)} {SafeMarkup.EscapeMarkup(fileName)}[/]",
                         new ProgressTaskSettings { MaxValue = fileSize });
-                    
+
                     result = await operation(task);
                 });
-                
+
             return result;
         }
 
@@ -192,24 +192,24 @@ namespace MaintainEase.DbMigrator.UI.Components
         public static Table CreateProgressTable(string title = "Operation Progress")
         {
             var table = SafeMarkup.CreateTable("Operation", "Status", "Progress", "Details");
-            
+
             if (!string.IsNullOrEmpty(title))
             {
                 table.Title = new TableTitle(title);
             }
-            
+
             return table;
         }
 
         /// <summary>
         /// Add a progress row to a progress table
         /// </summary>
-        public static void AddProgressRow(this Table table, string operation, string status, 
+        public static void AddProgressRow(this Table table, string operation, string status,
             double progressPercentage, string details)
         {
             string progressBar = GetProgressBar(progressPercentage);
             string statusColor = GetStatusColor(status.ToLowerInvariant());
-            
+
             table.AddRow(
                 new Markup(SafeMarkup.EscapeMarkup(operation)),
                 new Markup($"[{statusColor}]{SafeMarkup.EscapeMarkup(status)}[/]"),
@@ -221,12 +221,12 @@ namespace MaintainEase.DbMigrator.UI.Components
         /// <summary>
         /// Update a progress row in a progress table
         /// </summary>
-        public static void UpdateProgressRow(this Table table, int rowIndex, string operation, 
+        public static void UpdateProgressRow(this Table table, int rowIndex, string operation,
             string status, double progressPercentage, string details)
         {
             string progressBar = GetProgressBar(progressPercentage);
             string statusColor = GetStatusColor(status.ToLowerInvariant());
-            
+
             if (rowIndex >= 0 && rowIndex < table.Rows.Count)
             {
                 table.UpdateCell(rowIndex, 0, new Markup(SafeMarkup.EscapeMarkup(operation)));
@@ -242,7 +242,7 @@ namespace MaintainEase.DbMigrator.UI.Components
         {
             // Ensure percentage is between 0 and 100
             percentage = Math.Max(0, Math.Min(100, percentage));
-            
+
             // Determine color based on progress
             string color = percentage switch
             {
@@ -252,11 +252,11 @@ namespace MaintainEase.DbMigrator.UI.Components
                 >= 30 => "orange1",
                 _ => "red"
             };
-            
+
             // Calculate the number of filled segments (out of 10)
             int filledSegments = (int)Math.Round(percentage / 10);
             string bar = $"[{color}]" + new string('█', filledSegments) + "[/]" + new string('░', 10 - filledSegments);
-            
+
             return $"{bar} {percentage:F1}%";
         }
 
@@ -283,15 +283,15 @@ namespace MaintainEase.DbMigrator.UI.Components
     public class FileSizeColumn : ProgressColumn
     {
         /// <inheritdoc/>
-        public override IRenderable Render(ProgressTask task, ProgressContext context)
+        public override IRenderable Render(RenderOptions options, ProgressTask task, TimeSpan deltaTime)
         {
-            var formatter = new Spectre.Console.Rendering.StringFormatter();
-            formatter.AddFormatterResult(new Spectre.Console.Rendering.FormatterResult
+            // Create a text renderable
+            var text = new Text($"{GetSizeString(task.Value)} / {GetSizeString(task.MaxValue)}");
+            if (task.IsFinished)
             {
-                Text = $"{GetSizeString(task.Value)} / {GetSizeString(task.MaxValue)}",
-                Style = task.IsFinished ? new Style(Color.Green) : Style.Plain
-            });
-            return formatter;
+                text = new Text($"{GetSizeString(task.Value)} / {GetSizeString(task.MaxValue)}", new Style(Color.Green));
+            }
+            return text;
         }
 
         private static string GetSizeString(double bytes)
@@ -299,13 +299,13 @@ namespace MaintainEase.DbMigrator.UI.Components
             string[] sizes = { "B", "KB", "MB", "GB", "TB" };
             int order = 0;
             double size = bytes;
-            
+
             while (size >= 1024 && order < sizes.Length - 1)
             {
                 order++;
                 size /= 1024;
             }
-            
+
             return $"{size:0.##} {sizes[order]}";
         }
     }
@@ -316,15 +316,15 @@ namespace MaintainEase.DbMigrator.UI.Components
     public class DownloadedColumn : ProgressColumn
     {
         /// <inheritdoc/>
-        public override IRenderable Render(ProgressTask task, ProgressContext context)
+        public override IRenderable Render(RenderOptions options, ProgressTask task, TimeSpan deltaTime)
         {
-            var formatter = new Spectre.Console.Rendering.StringFormatter();
-            formatter.AddFormatterResult(new Spectre.Console.Rendering.FormatterResult
+            // Create a text renderable
+            var text = new Text($"{GetSizeString(task.Value)}");
+            if (task.IsFinished)
             {
-                Text = $"{GetSizeString(task.Value)}",
-                Style = task.IsFinished ? new Style(Color.Green) : Style.Plain
-            });
-            return formatter;
+                text = new Text($"{GetSizeString(task.Value)}", new Style(Color.Green));
+            }
+            return text;
         }
 
         private static string GetSizeString(double bytes)
@@ -332,13 +332,13 @@ namespace MaintainEase.DbMigrator.UI.Components
             string[] sizes = { "B", "KB", "MB", "GB", "TB" };
             int order = 0;
             double size = bytes;
-            
+
             while (size >= 1024 && order < sizes.Length - 1)
             {
                 order++;
                 size /= 1024;
             }
-            
+
             return $"{size:0.##} {sizes[order]}";
         }
     }

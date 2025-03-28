@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Spectre.Console;
 using MaintainEase.DbMigrator.UI.ConsoleHelpers;
+using Spectre.Console.Rendering;
 
 namespace MaintainEase.DbMigrator.UI.Components
 {

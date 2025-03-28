@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace MaintainEase.DbMigrator.Configuration
+namespace MaintainEase.DbMigrator.UI.Dialogs
 {
     class Class1
     {

@@ -26,7 +26,7 @@ namespace MaintainEase.DbMigrator.UI.Theme
                 Background = Color.Default,
                 Foreground = Color.White
             };
-            
+
             public static readonly ColorScheme Dark = new ColorScheme
             {
                 Primary = Color.DeepSkyBlue1,
@@ -40,7 +40,7 @@ namespace MaintainEase.DbMigrator.UI.Theme
                 Background = Color.Default,
                 Foreground = Color.Grey93
             };
-            
+
             public static readonly ColorScheme Light = new ColorScheme
             {
                 Primary = Color.Blue,
@@ -54,7 +54,7 @@ namespace MaintainEase.DbMigrator.UI.Theme
                 Background = Color.Default,
                 Foreground = Color.Black
             };
-            
+
             public static readonly ColorScheme Azure = new ColorScheme
             {
                 Primary = Color.RoyalBlue1,
@@ -69,14 +69,20 @@ namespace MaintainEase.DbMigrator.UI.Theme
                 Foreground = Color.White
             };
         }
-        
+
         // Style collections
         private static readonly Dictionary<string, Styles> _availableStyles = new Dictionary<string, Styles>();
-        
+
         // Current active theme
         private static string _currentTheme = "Default";
         private static Styles _currentStyles;
-        
+
+        // Initialize with static constructor instead of direct assignments
+        static ThemeManager()
+        {
+            Initialize();
+        }
+
         /// <summary>
         /// Initialize the theme manager with available themes
         /// </summary>
@@ -87,11 +93,11 @@ namespace MaintainEase.DbMigrator.UI.Theme
             RegisterTheme("Dark", new Styles(ColorSchemes.Dark));
             RegisterTheme("Light", new Styles(ColorSchemes.Light));
             RegisterTheme("Azure", new Styles(ColorSchemes.Azure));
-            
+
             // Set default theme
             SetTheme("Default");
         }
-        
+
         /// <summary>
         /// Register a new theme
         /// </summary>
@@ -99,10 +105,10 @@ namespace MaintainEase.DbMigrator.UI.Theme
         {
             if (string.IsNullOrEmpty(name))
                 throw new ArgumentException("Theme name cannot be empty.", nameof(name));
-                
+
             _availableStyles[name] = styles ?? throw new ArgumentNullException(nameof(styles));
         }
-        
+
         /// <summary>
         /// Set the active theme
         /// </summary>
@@ -110,38 +116,45 @@ namespace MaintainEase.DbMigrator.UI.Theme
         {
             if (string.IsNullOrEmpty(name) || !_availableStyles.ContainsKey(name))
                 return false;
-                
+
             _currentTheme = name;
             _currentStyles = _availableStyles[name];
-            
-            // Update default styles in SafeMarkup
-            SafeMarkup.Themes.PrimaryStyle = _currentStyles.Primary;
-            SafeMarkup.Themes.SuccessStyle = _currentStyles.Success;
-            SafeMarkup.Themes.WarningStyle = _currentStyles.Warning;
-            SafeMarkup.Themes.DangerStyle = _currentStyles.Danger;
-            SafeMarkup.Themes.InfoStyle = _currentStyles.Info;
-            SafeMarkup.Themes.MutedStyle = _currentStyles.Muted;
-            SafeMarkup.Themes.HighlightStyle = _currentStyles.Highlight;
-            
+
+            // Instead of directly assigning to readonly fields, use the update method
+            UpdateThemeStyles(_currentStyles);
+
             return true;
         }
-        
+
         /// <summary>
         /// Get the name of the current theme
         /// </summary>
         public static string GetCurrentTheme() => _currentTheme;
-        
+
         /// <summary>
         /// Get the list of available themes
         /// </summary>
         public static IEnumerable<string> GetAvailableThemes() => _availableStyles.Keys;
-        
+
         /// <summary>
         /// Get the current styles
         /// </summary>
         public static Styles GetCurrentStyles() => _currentStyles;
+
+        // Helper method to update styles without direct assignment
+        private static void UpdateThemeStyles(Styles styles)
+        {
+            SafeMarkup.Themes.UpdateStyles(
+                styles.Primary,
+                styles.Success,
+                styles.Warning,
+                styles.Danger,
+                styles.Info,
+                styles.Muted,
+                styles.Highlight);
+        }
     }
-    
+
     /// <summary>
     /// Color scheme for UI themes
     /// </summary>
@@ -158,7 +171,7 @@ namespace MaintainEase.DbMigrator.UI.Theme
         public Color Background { get; set; }
         public Color Foreground { get; set; }
     }
-    
+
     /// <summary>
     /// Collection of styles for a theme
     /// </summary>
@@ -172,7 +185,7 @@ namespace MaintainEase.DbMigrator.UI.Theme
         public Style Info { get; set; }
         public Style Muted { get; set; }
         public Style Highlight { get; set; }
-        
+
         /// <summary>
         /// Create styles from a color scheme
         /// </summary>
@@ -180,7 +193,7 @@ namespace MaintainEase.DbMigrator.UI.Theme
         {
             if (colorScheme == null)
                 throw new ArgumentNullException(nameof(colorScheme));
-                
+
             Primary = new Style(colorScheme.Primary, colorScheme.Background, Decoration.Bold);
             Secondary = new Style(colorScheme.Secondary, colorScheme.Background, Decoration.Bold);
             Success = new Style(colorScheme.Success, colorScheme.Background, Decoration.Bold);

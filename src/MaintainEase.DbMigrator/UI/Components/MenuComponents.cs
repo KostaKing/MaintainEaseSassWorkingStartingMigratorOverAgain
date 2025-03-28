@@ -61,37 +61,40 @@ namespace MaintainEase.DbMigrator.UI.Components
                 
             return menu;
         }
-        
+
         /// <summary>
         /// Create a selection menu with described options
         /// </summary>
         public static SelectionPrompt<T> CreateDescriptiveMenu<T>(
-            string title,
-            Dictionary<T, string> itemsWithDescriptions,
-            Func<T, string> formatter = null)
+        string title,
+        Dictionary<T, string> itemsWithDescriptions,
+        Func<T, string> formatter = null)
         {
             formatter ??= item => item.ToString();
-            
+
             var menu = new SelectionPrompt<T>()
                 .Title(SafeMarkup.EscapeMarkup(title))
                 .PageSize(10)
                 .HighlightStyle(SafeMarkup.Themes.PrimaryStyle)
-                .UseConverter(item => SafeMarkup.EscapeMarkup(formatter(item)));
-                
+                .UseConverter(item =>
+                {
+                    // Merge the main text with its description.
+                    if (itemsWithDescriptions.TryGetValue(item, out var description))
+                    {
+                        return $"{SafeMarkup.EscapeMarkup(formatter(item))} - {SafeMarkup.EscapeMarkup(description)}";
+                    }
+                    return SafeMarkup.EscapeMarkup(formatter(item));
+                });
+
             foreach (var item in itemsWithDescriptions.Keys)
             {
                 menu.AddChoice(item);
             }
-                
-            foreach (var item in itemsWithDescriptions)
-            {
-                menu.AddChoiceGroup(item.Key, new[] { item.Key })
-                    .WithDescription(SafeMarkup.EscapeMarkup(item.Value));
-            }
-                
+
             return menu;
         }
-        
+
+
         /// <summary>
         /// Create a multi-selection menu for selecting multiple items
         /// </summary>
@@ -251,15 +254,16 @@ namespace MaintainEase.DbMigrator.UI.Components
             bool defaultValue = false)
         {
             return AnsiConsole.Prompt(
-                new ConfirmationPrompt(SafeMarkup.EscapeMarkup(prompt))
-                {
-                    DefaultValue = defaultValue,
-                    ShowDefaultValue = true,
-                    PromptStyle = SafeMarkup.Themes.PrimaryStyle,
-                    Choices = new[] { "y", "n" }
-                });
+        new TextPrompt<bool>(SafeMarkup.EscapeMarkup(prompt))
+        .DefaultValue(defaultValue)
+        .ShowDefaultValue(true)
+        .PromptStyle(SafeMarkup.Themes.PrimaryStyle)
+        .AddChoice(true)
+        .AddChoice(false)
+        .WithConverter(choice => choice ? "y" : "n"));
+
         }
-        
+
         /// <summary>
         /// Create a main menu with the specified options
         /// </summary>
@@ -269,18 +273,18 @@ namespace MaintainEase.DbMigrator.UI.Components
                 .Title(SafeMarkup.EscapeMarkup(title))
                 .PageSize(Math.Min(10, options.Count + 2))
                 .HighlightStyle(SafeMarkup.Themes.PrimaryStyle);
-            
-            // Add the options with their descriptions
+
+            // Combine key and description into one display string
             foreach (var option in options)
             {
-                menu.AddChoice(option.Key);
-                menu.AddChoiceGroup(option.Key, new[] { option.Key })
-                    .WithDescription(SafeMarkup.EscapeMarkup(option.Value));
+                string choiceText = $"{option.Key} - {SafeMarkup.EscapeMarkup(option.Value)}";
+                menu.AddChoice(choiceText);
             }
-            
+
             return AnsiConsole.Prompt(menu);
         }
-        
+
+
         /// <summary>
         /// Create a wizard-style prompt for collecting multiple pieces of information
         /// </summary>
