@@ -161,6 +161,7 @@ namespace MaintainEase.DbMigrator.Configuration
             MigrationHistoryTable = "__EFMigrationsHistory"
         };
 
+
         /// <summary>
         /// PostgreSQL specific settings
         /// </summary>
@@ -180,7 +181,12 @@ namespace MaintainEase.DbMigrator.Configuration
         /// Name of the migrations history table
         /// </summary>
         public string MigrationHistoryTable { get; set; } = "__EFMigrationsHistory";
+        /// <summary>
+        /// Command timeout in seconds
+        /// </summary>
+        public int CommandTimeout { get; set; } = 30;
     }
+
 
     /// <summary>
     /// PostgreSQL specific settings

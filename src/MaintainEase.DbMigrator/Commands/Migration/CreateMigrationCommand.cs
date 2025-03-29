@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Spectre.Console;
 using Spectre.Console.Cli;
 using MaintainEase.DbMigrator.Configuration;
@@ -11,6 +12,7 @@ using MaintainEase.DbMigrator.UI.ConsoleHelpers;
 using MaintainEase.DbMigrator.UI.Components;
 using MaintainEase.DbMigrator.Plugins;
 using MaintainEase.DbMigrator.Contracts.Interfaces.Migrations;
+using System.Collections.Generic;
 
 namespace MaintainEase.DbMigrator.Commands.Migration
 {
@@ -23,17 +25,20 @@ namespace MaintainEase.DbMigrator.Commands.Migration
         private readonly ApplicationContext _appContext;
         private readonly PluginService _pluginService;
         private readonly ConnectionManager _connectionManager;
+        private readonly IOptions<DbMigratorSettings> _dbMigratorSettings;
 
         public CreateMigrationCommand(
             ILogger<CreateMigrationCommand> logger,
             ApplicationContext appContext,
             PluginService pluginService,
-            ConnectionManager connectionManager)
+            ConnectionManager connectionManager,
+            IOptions<DbMigratorSettings> dbMigratorSettings)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _appContext = appContext ?? throw new ArgumentNullException(nameof(appContext));
             _pluginService = pluginService ?? throw new ArgumentNullException(nameof(pluginService));
             _connectionManager = connectionManager ?? throw new ArgumentNullException(nameof(connectionManager));
+            _dbMigratorSettings = dbMigratorSettings ?? throw new ArgumentNullException(nameof(dbMigratorSettings));
         }
 
         public class Settings : CommandSettings
@@ -54,7 +59,7 @@ namespace MaintainEase.DbMigrator.Commands.Migration
             [Description("Custom output directory for migration files")]
             public string OutputDir { get; set; }
 
-            [CommandArgument(0, "<n>")]
+            [CommandArgument(0, "<name>")]
             [Description("Name of the migration")]
             public string MigrationName { get; set; }
         }
@@ -63,13 +68,13 @@ namespace MaintainEase.DbMigrator.Commands.Migration
         {
             try
             {
-                // If no provider is specified, use the current one from application context
-                string provider = settings.Provider ?? _appContext.CurrentProvider;
-
                 // Display info header
                 SafeMarkup.Banner("Create Migration", "blue");
                 SafeMarkup.Info($"Creating migration: {settings.MigrationName}");
                 SafeMarkup.Info($"Tenant: {settings.TenantIdentifier}");
+
+                // If no provider is specified, use the current one from application context
+                string provider = settings.Provider ?? _appContext.CurrentProvider;
                 SafeMarkup.Info($"Provider: {provider}");
 
                 // Determine migration output directory
@@ -83,7 +88,7 @@ namespace MaintainEase.DbMigrator.Commands.Migration
                 string connectionString = _connectionManager.GetConnectionString(provider);
                 _logger.LogDebug("Using connection string: {ConnectionString}", MaskConnectionString(connectionString));
 
-                // Create migration request for the plugin
+                // Create migration request for the plugin with additional context information
                 var migrationRequest = new MigrationRequest
                 {
                     MigrationName = settings.MigrationName,
@@ -91,14 +96,22 @@ namespace MaintainEase.DbMigrator.Commands.Migration
                     ConnectionConfig = new ConnectionConfig
                     {
                         ConnectionString = connectionString,
-                        ProviderName = provider
+                        ProviderName = provider,
+                        Timeout = _dbMigratorSettings.Value.Providers?.SqlServer?.CommandTimeout ?? 30,
+                        UseTransaction = true
                     },
                     TenantId = settings.TenantIdentifier,
                     Environment = _appContext.CurrentEnvironment,
-                    Verbose = _appContext.IsDebugMode
+                    Verbose = _appContext.IsDebugMode,
+                    AdditionalInfo = new Dictionary<string, string>
+                    {
+                        { "DbContext", settings.DbContext.EndsWith("DbContext") ? settings.DbContext : $"{settings.DbContext}DbContext" },
+                        { "SolutionDir", _appContext.WorkingDirectory },
+                        { "StartupProject", Path.Combine(_appContext.WorkingDirectory, "src", "MaintainEase.DbMigrator") }
+                    }
                 };
 
-                // Create the migration using the plugin service
+                // Create the migration using the plugin service with spinner
                 var result = await SpinnerComponents.WithSpinnerAsync(
                     $"Creating migration '{settings.MigrationName}'...",
                     async () => await _pluginService.CreateMigrationAsync(migrationRequest),
@@ -110,12 +123,35 @@ namespace MaintainEase.DbMigrator.Commands.Migration
 
                     if (result.AppliedMigrations?.Count > 0)
                     {
-                        var migration = result.AppliedMigrations[0];
-                        SafeMarkup.Info($"Migration ID: {migration.Id}");
+                        // Display information about the created migration files
+                        AnsiConsole.MarkupLine($"[green]Created the following migration files:[/]");
+                        var table = TableComponents.CreateTable("Id", "Name", "Path");
 
-                        if (!string.IsNullOrEmpty(migration.Script))
+                        foreach (var migration in result.AppliedMigrations)
                         {
-                            SafeMarkup.Info($"Script: {migration.Script}");
+                            table.AddRow(
+                                migration.Id ?? "-",
+                                SafeMarkup.EscapeMarkup(migration.Name ?? "Unknown"),
+                                migration.Script != null ? SafeMarkup.EscapeMarkup(Path.GetFileName(migration.Script)) : "-"
+                            );
+                        }
+
+                        AnsiConsole.Write(table);
+                        AnsiConsole.WriteLine();
+
+                        // If additional information is available, display it
+                        if (result.AdditionalInfo != null && result.AdditionalInfo.Count > 0)
+                        {
+                            AnsiConsole.MarkupLine("[yellow]Additional information:[/]");
+                            foreach (var info in result.AdditionalInfo)
+                            {
+                                // Only display non-sensitive information
+                                if (!info.Key.Contains("password", StringComparison.OrdinalIgnoreCase) &&
+                                    !info.Key.Contains("secret", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    AnsiConsole.MarkupLine($"[grey]{info.Key}:[/] {SafeMarkup.EscapeMarkup(info.Value)}");
+                                }
+                            }
                         }
                     }
 
@@ -124,6 +160,15 @@ namespace MaintainEase.DbMigrator.Commands.Migration
                 else
                 {
                     SafeMarkup.Error($"Failed to create migration: {result.ErrorMessage}");
+
+                    // Display any additional error information if available
+                    if (result.AdditionalInfo != null &&
+                        result.AdditionalInfo.TryGetValue("CommandOutput", out var commandOutput))
+                    {
+                        AnsiConsole.MarkupLine("[yellow]Command output:[/]");
+                        AnsiConsole.WriteLine(commandOutput);
+                    }
+
                     return 1;
                 }
             }

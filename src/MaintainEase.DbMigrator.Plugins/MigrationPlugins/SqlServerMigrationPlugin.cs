@@ -47,7 +47,7 @@ namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins
         /// <summary>
         /// Gets the description of the plugin
         /// </summary>
-        public string Description => "Provides migration capabilities for SQL Server databases";
+        public string Description => "Provides migration capabilities for SQL Server databases using EF Core";
 
         /// <summary>
         /// Gets the capabilities supported by this plugin
@@ -58,7 +58,8 @@ namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins
             "Apply Migration",
             "Generate Scripts",
             "Check Status",
-            "Test Connection"
+            "Test Connection",
+            "Backup Database"
         };
 
         /// <summary>

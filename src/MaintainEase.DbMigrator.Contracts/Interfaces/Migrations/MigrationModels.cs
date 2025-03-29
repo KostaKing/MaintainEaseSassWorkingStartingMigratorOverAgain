@@ -48,12 +48,18 @@ namespace MaintainEase.DbMigrator.Contracts.Interfaces.Migrations
         /// Gets or sets the output directory for scripts
         /// </summary>
         public string OutputDirectory { get; set; }
-        
+
         /// <summary>
         /// Gets or sets a value indicating whether to create a backup before migrating
         /// </summary>
         public bool CreateBackup { get; set; }
-        
+
+        // Add this property to the MigrationRequest class:
+        /// <summary>
+        /// Gets or sets additional information for the request
+        /// </summary>
+        public Dictionary<string, string> AdditionalInfo { get; set; } = new Dictionary<string, string>();
+
         /// <summary>
         /// Gets or sets the tenant identifier
         /// </summary>
