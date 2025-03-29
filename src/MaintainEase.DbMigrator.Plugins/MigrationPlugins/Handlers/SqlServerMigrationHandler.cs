@@ -3,12 +3,14 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using MaintainEase.DbMigrator.Contracts.Interfaces.Migrations;
-using System.Text;
 
 namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins.Handlers
 {
@@ -39,106 +41,161 @@ namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins.Handlers
             {
                 _logger?.LogInformation("Creating SQL Server migration: {MigrationName}", request.MigrationName);
 
-                // Ensure output directory exists
-                var outputDir = string.IsNullOrEmpty(request.OutputDirectory)
-                    ? Path.Combine(Directory.GetCurrentDirectory(), "Migrations")
-                    : request.OutputDirectory;
+                // Find solution directory
+                string solutionDir = FindSolutionDirectory(Directory.GetCurrentDirectory());
+                if (string.IsNullOrEmpty(solutionDir))
+                {
+                    return new MigrationResult
+                    {
+                        Success = false,
+                        ErrorMessage = "Could not find solution directory. Make sure you're running from within the solution."
+                    };
+                }
+
+                // Determine proper paths
+                string infrastructureProjectPath = Path.Combine(solutionDir, "src", "MaintainEase.Infrastructure");
+                if (!Directory.Exists(infrastructureProjectPath))
+                {
+                    return new MigrationResult
+                    {
+                        Success = false,
+                        ErrorMessage = $"Infrastructure project not found at: {infrastructureProjectPath}"
+                    };
+                }
 
                 // When building tenantPath, make it correctly target Infrastructure project:
-                string baseMigrationsFolder = Path.Combine(FindSolutionDirectory(Directory.GetCurrentDirectory()),
-                    "src", "MaintainEase.Infrastructure", "Migrations");
+                string baseMigrationsFolder = Path.Combine(infrastructureProjectPath, "Migrations");
+                if (!Directory.Exists(baseMigrationsFolder))
+                {
+                    Directory.CreateDirectory(baseMigrationsFolder);
+                }
 
                 string tenantPath = Path.Combine(baseMigrationsFolder,
-                ProviderType, // This class's ProviderType property is "SqlServer"
-                request.TenantId ?? "default");
+                    ProviderType, // This class's ProviderType property is "SqlServer"
+                    request.TenantId ?? "default");
+
                 if (!Directory.Exists(tenantPath))
                 {
                     Directory.CreateDirectory(tenantPath);
                     _logger?.LogInformation("Created migrations directory: {OutputDir}", tenantPath);
                 }
 
-                // Try to find dotnet executable
-                string dotnetPath = FindDotnetExecutable();
-                if (string.IsNullOrEmpty(dotnetPath))
+                // Create a migration proxy project
+                string tempProxyDir = Path.Combine(Path.GetTempPath(), $"MigrationProxy_{Guid.NewGuid().ToString("N")}");
+                Directory.CreateDirectory(tempProxyDir);
+                _logger?.LogInformation("Created temporary proxy directory: {TempDir}", tempProxyDir);
+
+                try
                 {
-                    return new MigrationResult
+                    // First, analyze the Infrastructure project to find DbContext types
+                    var dbContextTypes = await AnalyzeDbContextsInProject(infrastructureProjectPath);
+                    if (dbContextTypes.Count == 0)
                     {
-                        Success = false,
-                        ErrorMessage = "Could not find dotnet executable. Please ensure .NET SDK is installed."
-                    };
-                }
+                        return new MigrationResult
+                        {
+                            Success = false,
+                            ErrorMessage = "No DbContext classes found in the Infrastructure project."
+                        };
+                    }
 
-                // Find Infrastructure project path (or where DbContext is located)
-                string infrastructureProjectPath = await FindInfrastructureProjectPathAsync();
-                if (string.IsNullOrEmpty(infrastructureProjectPath))
-                {
-                    return new MigrationResult
+                    // Determine DbContext to use
+                    string contextName = request.AdditionalInfo != null &&
+                                        request.AdditionalInfo.TryGetValue("DbContext", out var dbContext)
+                                        ? dbContext
+                                        : "AppDbContext";
+
+                    // Match the requested context with found contexts (case-insensitive)
+                    var matchingContext = dbContextTypes.FirstOrDefault(c =>
+                        string.Equals(c.Name, contextName, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(c.Name, contextName + "DbContext", StringComparison.OrdinalIgnoreCase));
+
+                    if (matchingContext == null)
                     {
-                        Success = false,
-                        ErrorMessage = "Could not find Infrastructure project. Please ensure it exists in the solution."
-                    };
-                }
+                        // If no match by name, see if we have an AppDbContext or just use the first one
+                        matchingContext = dbContextTypes.FirstOrDefault(c => c.Name.Equals("AppDbContext", StringComparison.OrdinalIgnoreCase))
+                                      ?? dbContextTypes.First();
 
-                // Determine DbContext to use
-                string contextName = request.AdditionalInfo != null &&
-                                    request.AdditionalInfo.TryGetValue("DbContext", out var dbContext)
-                                    ? dbContext
-                                    : "AppDbContext";
+                        _logger?.LogWarning("Requested context '{RequestedContext}' not found. Using '{FoundContext}' instead.",
+                            contextName, matchingContext.Name);
 
-                // Find startup project (where Program.cs is located)
-                string startupProjectPath = Path.Combine(FindSolutionDirectory(Directory.GetCurrentDirectory()), "src", "MaintainEase.DbMigrator");
-
-
-                // Create a temporary script to run EF Core commands to avoid command line length issues
-                string scriptPath = Path.Combine(Path.GetTempPath(), $"ef_migration_{Guid.NewGuid()}.cmd");
-                string migrationId = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
-
-                // Build the EF Core migrations command
-                string efCommand = $"ef migrations add {request.MigrationName} " +
-                                 $"--context {contextName} " +
-                                 $"--project \"{infrastructureProjectPath}\" " +
-                                 $"--startup-project \"{startupProjectPath}\" " +
-                                 $"--output-dir \"{tenantPath}\" " +
-                                 $"-- --provider {ProviderType} --connection \"{request.ConnectionConfig.ConnectionString}\"";
-
-                await File.WriteAllTextAsync(scriptPath, $"@echo off\necho Running: dotnet {efCommand}\ndotnet {efCommand}", cancellationToken);
-
-                _logger?.LogInformation("EF Core command: dotnet {Command}", efCommand);
-
-                _logger?.LogInformation("Project diagnostics: \n{Diagnostics}",
-            await GenerateProjectDiagnosticsAsync(infrastructureProjectPath));
-
-                var result = await ExecuteEfCoreCommandAsync(scriptPath, cancellationToken);
-
-                // Clean up the temporary script
-                try { File.Delete(scriptPath); } catch { /* Ignore errors */ }
-
-                if (!result.Success)
-                {
-                    return result;
-                }
-
-                // Verify the migration files were created
-                var migrationFiles = await FindMigrationFilesAsync(tenantPath, request.MigrationName);
-
-                if (migrationFiles.Count > 0)
-                {
-                    _logger?.LogInformation("Found {Count} migration files in {Path}", migrationFiles.Count, tenantPath);
-
-                    result.AppliedMigrations = migrationFiles.Select(file => new MigrationInfo
+                        // Update context name to use in the command
+                        contextName = matchingContext.FullName;
+                    }
+                    else
                     {
-                        Id = migrationId,
-                        Name = request.MigrationName,
-                        Created = DateTime.UtcNow,
-                        Script = file
-                    }).ToList();
+                        // Use the full name with namespace
+                        contextName = matchingContext.FullName;
+                    }
 
-                    return result;
+                    _logger?.LogInformation("Using DbContext: {ContextName}", contextName);
+
+                    // Create a minimal proxy project that references Infrastructure
+                    await CreateProxyProjectAsync(tempProxyDir, infrastructureProjectPath, dbContextTypes);
+
+                    // Create a temporary script to run EF Core commands
+                    string scriptPath = Path.Combine(Path.GetTempPath(), $"ef_migration_{Guid.NewGuid()}.cmd");
+                    string migrationId = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+
+                    // Build the EF Core migrations command using our proxy project
+                    string efCommand = $"ef migrations add {request.MigrationName} " +
+                                     $"--context {contextName} " +
+                                     $"--project \"{tempProxyDir}\" " +
+                                     $"--output-dir \"{tenantPath}\" " +
+                                     $"--verbose"; // Use verbose flag for better diagnostics
+
+                    await File.WriteAllTextAsync(scriptPath, $"@echo off\ncd \"{tempProxyDir}\"\ndotnet {efCommand}", cancellationToken);
+
+                    _logger?.LogInformation("EF Core command: dotnet {Command}", efCommand);
+
+                    // Execute the command
+                    var result = await ExecuteEfCoreCommandAsync(scriptPath, cancellationToken);
+
+                    // Clean up the temporary script
+                    try { File.Delete(scriptPath); } catch { /* Ignore errors */ }
+
+                    if (!result.Success)
+                    {
+                        return result;
+                    }
+
+                    // Verify the migration files were created
+                    var migrationFiles = await FindMigrationFilesAsync(tenantPath, request.MigrationName);
+
+                    if (migrationFiles.Count > 0)
+                    {
+                        _logger?.LogInformation("Found {Count} migration files in {Path}", migrationFiles.Count, tenantPath);
+
+                        result.AppliedMigrations = migrationFiles.Select(file => new MigrationInfo
+                        {
+                            Id = migrationId,
+                            Name = request.MigrationName,
+                            Created = DateTime.UtcNow,
+                            Script = file
+                        }).ToList();
+
+                        return result;
+                    }
+
+                    // Fallback if no files found
+                    _logger?.LogWarning("EF Core reported success but no migration files were found.");
+
+                    // If EF Core reported success but we can't find the files, create basic migration files
+                    _logger?.LogWarning("Creating basic migration files as fallback.");
+                    return await CreateBasicMigrationAsync(request, tenantPath, migrationId, cancellationToken);
                 }
-
-                // If EF Core reported success but we can't find the files, create basic migration files
-                _logger?.LogWarning("EF Core reported success but no migration files were found. Creating basic migration files.");
-                return await CreateBasicMigrationAsync(request, tenantPath, migrationId, cancellationToken);
+                finally
+                {
+                    // Clean up the temporary proxy directory
+                    try
+                    {
+                        Directory.Delete(tempProxyDir, true);
+                        _logger?.LogInformation("Cleaned up temporary proxy directory");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogWarning(ex, "Failed to clean up temporary proxy directory: {Error}", ex.Message);
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -173,14 +230,36 @@ namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins.Handlers
                     };
                 }
 
-                // Find Infrastructure project path (or where DbContext is located)
-                string infrastructureProjectPath = await FindInfrastructureProjectPathAsync();
-                if (string.IsNullOrEmpty(infrastructureProjectPath))
+                // Find solution directory
+                string solutionDir = FindSolutionDirectory(Directory.GetCurrentDirectory());
+                if (string.IsNullOrEmpty(solutionDir))
                 {
                     return new MigrationResult
                     {
                         Success = false,
-                        ErrorMessage = "Could not find Infrastructure project. Please ensure it exists in the solution."
+                        ErrorMessage = "Could not find solution directory."
+                    };
+                }
+
+                // Find Infrastructure project path
+                string infrastructureProjectPath = Path.Combine(solutionDir, "src", "MaintainEase.Infrastructure");
+                if (!Directory.Exists(infrastructureProjectPath))
+                {
+                    return new MigrationResult
+                    {
+                        Success = false,
+                        ErrorMessage = "Could not find Infrastructure project."
+                    };
+                }
+
+                // Analyze the Infrastructure project to find DbContext types
+                var dbContextTypes = await AnalyzeDbContextsInProject(infrastructureProjectPath);
+                if (dbContextTypes.Count == 0)
+                {
+                    return new MigrationResult
+                    {
+                        Success = false,
+                        ErrorMessage = "No DbContext classes found in the Infrastructure project."
                     };
                 }
 
@@ -190,11 +269,30 @@ namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins.Handlers
                                     ? dbContext
                                     : "AppDbContext";
 
-                // Find startup project (where Program.cs is located)
-                string startupProjectPath = Path.Combine(FindSolutionDirectory(Directory.GetCurrentDirectory()), "src", "MaintainEase.DbMigrator");
+                // Match the requested context with found contexts (case-insensitive)
+                var matchingContext = dbContextTypes.FirstOrDefault(c =>
+                    string.Equals(c.Name, contextName, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(c.Name, contextName + "DbContext", StringComparison.OrdinalIgnoreCase));
 
+                if (matchingContext == null)
+                {
+                    // If no match by name, see if we have an AppDbContext or just use the first one
+                    matchingContext = dbContextTypes.FirstOrDefault(c => c.Name.Equals("AppDbContext", StringComparison.OrdinalIgnoreCase))
+                                   ?? dbContextTypes.First();
 
-                // If creating a backup was requested (and implemented - this is a placeholder)
+                    _logger?.LogWarning("Requested context '{RequestedContext}' not found. Using '{FoundContext}' instead.",
+                        contextName, matchingContext.Name);
+
+                    // Update context name to use in the command
+                    contextName = matchingContext.FullName;
+                }
+                else
+                {
+                    // Use the full name with namespace
+                    contextName = matchingContext.FullName;
+                }
+
+                // If creating a backup was requested
                 string backupPath = null;
                 if (request.CreateBackup)
                 {
@@ -202,36 +300,64 @@ namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins.Handlers
                     _logger?.LogInformation("Created SQL Server backup at: {BackupPath}", backupPath);
                 }
 
-                // Create a temporary script to run EF Core commands
-                string scriptPath = Path.Combine(Path.GetTempPath(), $"ef_migration_{Guid.NewGuid()}.cmd");
+                // Create a migration proxy project
+                string tempProxyDir = Path.Combine(Path.GetTempPath(), $"MigrationProxy_{Guid.NewGuid().ToString("N")}");
+                Directory.CreateDirectory(tempProxyDir);
 
-                // Build the database update command
-                string efCommand = $"ef database update " +
-                                 $"--context {contextName} " +
-                                 $"--project \"{infrastructureProjectPath}\" " +
-                                 $"--startup-project \"{startupProjectPath}\" " +
-                                 $"-- --provider {ProviderType} --connection \"{request.ConnectionConfig.ConnectionString}\"";
-
-                await File.WriteAllTextAsync(scriptPath, $"@echo off\necho Running: dotnet {efCommand}\ndotnet {efCommand}", cancellationToken);
-
-                _logger?.LogInformation("EF Core command: dotnet {Command}", efCommand);
-
-                var result = await ExecuteEfCoreCommandAsync(scriptPath, cancellationToken);
-
-                // Clean up the temporary script
-                try { File.Delete(scriptPath); } catch { /* Ignore errors */ }
-
-                if (!result.Success)
+                try
                 {
+                    // Create a minimal proxy project that references Infrastructure
+                    await CreateProxyProjectAsync(tempProxyDir, infrastructureProjectPath, dbContextTypes);
+
+                    // Create a temporary script to run EF Core commands
+                    string scriptPath = Path.Combine(Path.GetTempPath(), $"ef_migration_{Guid.NewGuid()}.cmd");
+
+                    // Build the database update command
+                    string efCommand = $"ef database update " +
+                                     $"--context {contextName} " +
+                                     $"--project \"{tempProxyDir}\" " +
+                                     $"--verbose";
+
+                    // Write connection string to environment variable for security
+                    string scriptContent = $@"@echo off
+cd ""{tempProxyDir}""
+set ConnectionStrings__DefaultConnection={request.ConnectionConfig.ConnectionString}
+dotnet {efCommand}";
+
+                    await File.WriteAllTextAsync(scriptPath, scriptContent, cancellationToken);
+
+                    _logger?.LogInformation("EF Core command: dotnet {Command}", efCommand);
+
+                    var result = await ExecuteEfCoreCommandAsync(scriptPath, cancellationToken);
+
+                    // Clean up the temporary script
+                    try { File.Delete(scriptPath); } catch { /* Ignore errors */ }
+
+                    if (!result.Success)
+                    {
+                        return result;
+                    }
+
+                    // Get the applied migrations (would be loaded from the database in a real implementation)
+                    result.BackupPath = backupPath;
+                    var migrations = await GetStatusAsync(request, cancellationToken);
+                    result.AppliedMigrations = migrations.AppliedMigrations;
+
                     return result;
                 }
-
-                // Get the applied migrations (would be loaded from the database in a real implementation)
-                result.BackupPath = backupPath;
-                var migrations = await GetStatusAsync(request, cancellationToken);
-                result.AppliedMigrations = migrations.AppliedMigrations;
-
-                return result;
+                finally
+                {
+                    // Clean up the temporary proxy directory
+                    try
+                    {
+                        Directory.Delete(tempProxyDir, true);
+                        _logger?.LogInformation("Cleaned up temporary proxy directory");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogWarning(ex, "Failed to clean up temporary proxy directory: {Error}", ex.Message);
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -255,13 +381,33 @@ namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins.Handlers
                 _logger?.LogInformation("Getting migration status using connection string: {ConnectionString}",
                     MaskConnectionString(request.ConnectionConfig.ConnectionString));
 
-                // Find Infrastructure project path (or where DbContext is located)
-                string infrastructureProjectPath = await FindInfrastructureProjectPathAsync();
-                if (string.IsNullOrEmpty(infrastructureProjectPath))
+                // Find solution directory
+                string solutionDir = FindSolutionDirectory(Directory.GetCurrentDirectory());
+                if (string.IsNullOrEmpty(solutionDir))
+                {
+                    return new MigrationStatus
+                    {
+                        ErrorMessage = "Could not find solution directory."
+                    };
+                }
+
+                // Find Infrastructure project path
+                string infrastructureProjectPath = Path.Combine(solutionDir, "src", "MaintainEase.Infrastructure");
+                if (!Directory.Exists(infrastructureProjectPath))
                 {
                     return new MigrationStatus
                     {
                         ErrorMessage = "Could not find Infrastructure project."
+                    };
+                }
+
+                // Analyze the Infrastructure project to find DbContext types
+                var dbContextTypes = await AnalyzeDbContextsInProject(infrastructureProjectPath);
+                if (dbContextTypes.Count == 0)
+                {
+                    return new MigrationStatus
+                    {
+                        ErrorMessage = "No DbContext classes found in the Infrastructure project."
                     };
                 }
 
@@ -271,63 +417,110 @@ namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins.Handlers
                                     ? dbContext
                                     : "AppDbContext";
 
-                // Find startup project (where Program.cs is located)
-                string startupProjectPath = Path.Combine(FindSolutionDirectory(Directory.GetCurrentDirectory()), "src", "MaintainEase.DbMigrator");
+                // Match the requested context with found contexts (case-insensitive)
+                var matchingContext = dbContextTypes.FirstOrDefault(c =>
+                    string.Equals(c.Name, contextName, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(c.Name, contextName + "DbContext", StringComparison.OrdinalIgnoreCase));
 
-
-                // Create a temporary script to run EF Core commands
-                string scriptPath = Path.Combine(Path.GetTempPath(), $"ef_migration_{Guid.NewGuid()}.cmd");
-
-                // Build the list command
-                string efCommand = $"ef migrations list " +
-                                 $"--context {contextName} " +
-                                 $"--project \"{infrastructureProjectPath}\" " +
-                                 $"--startup-project \"{startupProjectPath}\" " +
-                                 $"-- --provider {ProviderType} --connection \"{request.ConnectionConfig.ConnectionString}\"";
-
-                await File.WriteAllTextAsync(scriptPath, $"@echo off\necho Running: dotnet {efCommand}\ndotnet {efCommand}", cancellationToken);
-
-                // Execute the command to get migration list
-                var process = new Process
+                if (matchingContext == null)
                 {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = "cmd.exe",
-                        Arguments = $"/c \"{scriptPath}\"",
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    }
-                };
+                    // If no match by name, see if we have an AppDbContext or just use the first one
+                    matchingContext = dbContextTypes.FirstOrDefault(c => c.Name.Equals("AppDbContext", StringComparison.OrdinalIgnoreCase))
+                                   ?? dbContextTypes.First();
 
-                process.Start();
-                string output = await process.StandardOutput.ReadToEndAsync();
-                string error = await process.StandardError.ReadToEndAsync();
-                await process.WaitForExitAsync(cancellationToken);
+                    _logger?.LogWarning("Requested context '{RequestedContext}' not found. Using '{FoundContext}' instead.",
+                        contextName, matchingContext.Name);
 
-                // Clean up the temporary script
-                try { File.Delete(scriptPath); } catch { /* Ignore errors */ }
-
-                // Parse the output to determine applied and pending migrations
-                var status = new MigrationStatus
+                    // Update context name to use in the command
+                    contextName = matchingContext.FullName;
+                }
+                else
                 {
-                    ProviderName = ProviderType,
-                    DatabaseName = ExtractDatabaseName(request.ConnectionConfig.ConnectionString),
-                    DatabaseVersion = "SQL Server"
-                };
-
-                if (process.ExitCode != 0)
-                {
-                    status.ErrorMessage = $"Failed to get migration status: {error}";
-                    _logger?.LogError("Error getting migration status: {Error}", error);
-                    return status;
+                    // Use the full name with namespace
+                    contextName = matchingContext.FullName;
                 }
 
-                // Parse the migrations list output
-                ParseMigrationsList(output, status);
+                // Create a migration proxy project
+                string tempProxyDir = Path.Combine(Path.GetTempPath(), $"MigrationProxy_{Guid.NewGuid().ToString("N")}");
+                Directory.CreateDirectory(tempProxyDir);
 
-                return status;
+                try
+                {
+                    // Create a minimal proxy project that references Infrastructure
+                    await CreateProxyProjectAsync(tempProxyDir, infrastructureProjectPath, dbContextTypes);
+
+                    // Create a temporary script to run EF Core commands
+                    string scriptPath = Path.Combine(Path.GetTempPath(), $"ef_migration_{Guid.NewGuid()}.cmd");
+
+                    // Build the list command
+                    string efCommand = $"ef migrations list " +
+                                     $"--context {contextName} " +
+                                     $"--project \"{tempProxyDir}\" " +
+                                     $"--json";
+
+                    // Write connection string to environment variable for security
+                    string scriptContent = $@"@echo off
+cd ""{tempProxyDir}""
+set ConnectionStrings__DefaultConnection={request.ConnectionConfig.ConnectionString}
+dotnet {efCommand}";
+
+                    await File.WriteAllTextAsync(scriptPath, scriptContent, cancellationToken);
+
+                    // Execute the command to get migration list
+                    var process = new Process
+                    {
+                        StartInfo = new ProcessStartInfo
+                        {
+                            FileName = "cmd.exe",
+                            Arguments = $"/c \"{scriptPath}\"",
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        }
+                    };
+
+                    process.Start();
+                    string output = await process.StandardOutput.ReadToEndAsync();
+                    string error = await process.StandardError.ReadToEndAsync();
+                    await process.WaitForExitAsync(cancellationToken);
+
+                    // Clean up the temporary script
+                    try { File.Delete(scriptPath); } catch { /* Ignore errors */ }
+
+                    // Parse the output to determine applied and pending migrations
+                    var status = new MigrationStatus
+                    {
+                        ProviderName = ProviderType,
+                        DatabaseName = ExtractDatabaseName(request.ConnectionConfig.ConnectionString),
+                        DatabaseVersion = "SQL Server"
+                    };
+
+                    if (process.ExitCode != 0)
+                    {
+                        status.ErrorMessage = $"Failed to get migration status: {error}";
+                        _logger?.LogError("Error getting migration status: {Error}", error);
+                        return status;
+                    }
+
+                    // Parse the migrations list output
+                    ParseMigrationsList(output, status);
+
+                    return status;
+                }
+                finally
+                {
+                    // Clean up the temporary proxy directory
+                    try
+                    {
+                        Directory.Delete(tempProxyDir, true);
+                        _logger?.LogInformation("Cleaned up temporary proxy directory");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogWarning(ex, "Failed to clean up temporary proxy directory: {Error}", ex.Message);
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -362,14 +555,36 @@ namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins.Handlers
                     Directory.CreateDirectory(outputDir);
                 }
 
-                // Find Infrastructure project path (or where DbContext is located)
-                string infrastructureProjectPath = await FindInfrastructureProjectPathAsync();
-                if (string.IsNullOrEmpty(infrastructureProjectPath))
+                // Find solution directory
+                string solutionDir = FindSolutionDirectory(Directory.GetCurrentDirectory());
+                if (string.IsNullOrEmpty(solutionDir))
+                {
+                    return new MigrationResult
+                    {
+                        Success = false,
+                        ErrorMessage = "Could not find solution directory."
+                    };
+                }
+
+                // Find Infrastructure project path
+                string infrastructureProjectPath = Path.Combine(solutionDir, "src", "MaintainEase.Infrastructure");
+                if (!Directory.Exists(infrastructureProjectPath))
                 {
                     return new MigrationResult
                     {
                         Success = false,
                         ErrorMessage = "Could not find Infrastructure project."
+                    };
+                }
+
+                // Analyze the Infrastructure project to find DbContext types
+                var dbContextTypes = await AnalyzeDbContextsInProject(infrastructureProjectPath);
+                if (dbContextTypes.Count == 0)
+                {
+                    return new MigrationResult
+                    {
+                        Success = false,
+                        ErrorMessage = "No DbContext classes found in the Infrastructure project."
                     };
                 }
 
@@ -379,54 +594,100 @@ namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins.Handlers
                                     ? dbContext
                                     : "AppDbContext";
 
-                // Find startup project (where Program.cs is located)
-                string startupProjectPath = Path.Combine(FindSolutionDirectory(Directory.GetCurrentDirectory()), "src", "MaintainEase.DbMigrator");
+                // Match the requested context with found contexts (case-insensitive)
+                var matchingContext = dbContextTypes.FirstOrDefault(c =>
+                    string.Equals(c.Name, contextName, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(c.Name, contextName + "DbContext", StringComparison.OrdinalIgnoreCase));
 
-
-                // Create a temporary script to run EF Core commands
-                string scriptPath = Path.Combine(Path.GetTempPath(), $"ef_migration_{Guid.NewGuid()}.cmd");
-                string outputScriptPath = Path.Combine(outputDir, $"migration_script_{DateTime.Now:yyyyMMddHHmmss}.sql");
-
-                // Build the script command
-                string efCommand = $"ef migrations script " +
-                                 $"--context {contextName} " +
-                                 $"--project \"{infrastructureProjectPath}\" " +
-                                 $"--startup-project \"{startupProjectPath}\" " +
-                                 $"--output \"{outputScriptPath}\" " +
-                                 $"-- --provider {ProviderType} --connection \"{request.ConnectionConfig.ConnectionString}\"";
-
-                await File.WriteAllTextAsync(scriptPath, $"@echo off\necho Running: dotnet {efCommand}\ndotnet {efCommand}", cancellationToken);
-
-                var result = await ExecuteEfCoreCommandAsync(scriptPath, cancellationToken);
-
-                // Clean up the temporary script
-                try { File.Delete(scriptPath); } catch { /* Ignore errors */ }
-
-                if (!result.Success)
+                if (matchingContext == null)
                 {
-                    return result;
-                }
+                    // If no match by name, see if we have an AppDbContext or just use the first one
+                    matchingContext = dbContextTypes.FirstOrDefault(c => c.Name.Equals("AppDbContext", StringComparison.OrdinalIgnoreCase))
+                                   ?? dbContextTypes.First();
 
-                // Check if the script file was created
-                if (File.Exists(outputScriptPath))
-                {
-                    result.ScriptsPath = outputDir;
-                    result.AppliedMigrations = new List<MigrationInfo>
-                    {
-                        new MigrationInfo
-                        {
-                            Script = outputScriptPath,
-                            Name = "Generated Migration Script"
-                        }
-                    };
+                    _logger?.LogWarning("Requested context '{RequestedContext}' not found. Using '{FoundContext}' instead.",
+                        contextName, matchingContext.Name);
+
+                    // Update context name to use in the command
+                    contextName = matchingContext.FullName;
                 }
                 else
                 {
-                    result.Success = false;
-                    result.ErrorMessage = "Script file was not created.";
+                    // Use the full name with namespace
+                    contextName = matchingContext.FullName;
                 }
 
-                return result;
+                // Create a migration proxy project
+                string tempProxyDir = Path.Combine(Path.GetTempPath(), $"MigrationProxy_{Guid.NewGuid().ToString("N")}");
+                Directory.CreateDirectory(tempProxyDir);
+                string outputScriptPath = Path.Combine(outputDir, $"migration_script_{DateTime.Now:yyyyMMddHHmmss}.sql");
+
+                try
+                {
+                    // Create a minimal proxy project that references Infrastructure
+                    await CreateProxyProjectAsync(tempProxyDir, infrastructureProjectPath, dbContextTypes);
+
+                    // Create a temporary script to run EF Core commands
+                    string scriptPath = Path.Combine(Path.GetTempPath(), $"ef_migration_{Guid.NewGuid()}.cmd");
+
+                    // Build the script command
+                    string efCommand = $"ef migrations script " +
+                                     $"--context {contextName} " +
+                                     $"--project \"{tempProxyDir}\" " +
+                                     $"--output \"{outputScriptPath}\"";
+
+                    // Write connection string to environment variable for security
+                    string scriptContent = $@"@echo off
+cd ""{tempProxyDir}""
+set ConnectionStrings__DefaultConnection={request.ConnectionConfig.ConnectionString}
+dotnet {efCommand}";
+
+                    await File.WriteAllTextAsync(scriptPath, scriptContent, cancellationToken);
+
+                    var result = await ExecuteEfCoreCommandAsync(scriptPath, cancellationToken);
+
+                    // Clean up the temporary script
+                    try { File.Delete(scriptPath); } catch { /* Ignore errors */ }
+
+                    if (!result.Success)
+                    {
+                        return result;
+                    }
+
+                    // Check if the script file was created
+                    if (File.Exists(outputScriptPath))
+                    {
+                        result.ScriptsPath = outputDir;
+                        result.AppliedMigrations = new List<MigrationInfo>
+                        {
+                            new MigrationInfo
+                            {
+                                Script = outputScriptPath,
+                                Name = "Generated Migration Script"
+                            }
+                        };
+                    }
+                    else
+                    {
+                        result.Success = false;
+                        result.ErrorMessage = "Script file was not created.";
+                    }
+
+                    return result;
+                }
+                finally
+                {
+                    // Clean up the temporary proxy directory
+                    try
+                    {
+                        Directory.Delete(tempProxyDir, true);
+                        _logger?.LogInformation("Cleaned up temporary proxy directory");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogWarning(ex, "Failed to clean up temporary proxy directory: {Error}", ex.Message);
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -663,7 +924,428 @@ namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins.Handlers
             };
         }
 
-        // Add this method to SqlServerMigrationHandler
+        /// <summary>
+        /// Analyze the Infrastructure project to find DbContext classes
+        /// </summary>
+        private async Task<List<DbContextInfo>> AnalyzeDbContextsInProject(string projectPath)
+        {
+            var result = new List<DbContextInfo>();
+
+            try
+            {
+                // Look for existing compiled DLLs first
+                var configurations = new[] { "Debug", "Release" };
+                var frameworks = new[] { "net9.0", "net8.0", "net7.0", "net6.0" };
+                string dllPath = null;
+
+                foreach (var config in configurations)
+                {
+                    foreach (var framework in frameworks)
+                    {
+                        var path = Path.Combine(projectPath, "bin", config, framework, "MaintainEase.Infrastructure.dll");
+                        if (File.Exists(path))
+                        {
+                            dllPath = path;
+                            _logger?.LogInformation("Found Infrastructure DLL at {Path}", path);
+                            break;
+                        }
+                    }
+                    if (dllPath != null) break;
+                }
+
+                if (dllPath == null)
+                {
+                    // If DLL not found, we'll need to build the project
+                    await BuildProjectAsync(projectPath);
+
+                    // Try to find the DLL again after building
+                    foreach (var config in configurations)
+                    {
+                        foreach (var framework in frameworks)
+                        {
+                            var path = Path.Combine(projectPath, "bin", config, framework, "MaintainEase.Infrastructure.dll");
+                            if (File.Exists(path))
+                            {
+                                dllPath = path;
+                                _logger?.LogInformation("Found Infrastructure DLL after building at {Path}", path);
+                                break;
+                            }
+                        }
+                        if (dllPath != null) break;
+                    }
+                }
+
+                if (dllPath == null)
+                {
+                    _logger?.LogWarning("Could not find compiled Infrastructure DLL after building.");
+
+                    // Fallback: analyze source code directly to find DbContext classes
+                    return await AnalyzeSourceCodeForDbContexts(projectPath);
+                }
+
+                // Use reflection to find DbContext types in the DLL
+                try
+                {
+                    var assembly = Assembly.LoadFrom(dllPath);
+
+                    // Find types that derive from DbContext
+                    var dbContextBaseType = typeof(DbContext);
+                    var types = assembly.GetTypes()
+                        .Where(t => t != dbContextBaseType && // Not the base DbContext type
+                                    dbContextBaseType.IsAssignableFrom(t) && // Is or inherits from DbContext
+                                    !t.IsAbstract && // Not abstract
+                                    !t.IsInterface) // Not an interface
+                        .ToList();
+
+                    foreach (var type in types)
+                    {
+                        result.Add(new DbContextInfo
+                        {
+                            Name = type.Name,
+                            FullName = type.FullName,
+                            Namespace = type.Namespace,
+                            Assembly = assembly.GetName().Name
+                        });
+
+                        _logger?.LogInformation("Found DbContext: {Name} ({FullName})", type.Name, type.FullName);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "Error loading assembly for reflection: {DllPath}", dllPath);
+
+                    // Fallback: analyze source code
+                    return await AnalyzeSourceCodeForDbContexts(projectPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error analyzing Infrastructure project for DbContext classes");
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Build the Infrastructure project
+        /// </summary>
+        private async Task<bool> BuildProjectAsync(string projectPath)
+        {
+            try
+            {
+                _logger?.LogInformation("Building Infrastructure project at {Path}", projectPath);
+
+                var process = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "dotnet",
+                        Arguments = $"build \"{projectPath}\" -c Debug",
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    }
+                };
+
+                process.Start();
+                string output = await process.StandardOutput.ReadToEndAsync();
+                string error = await process.StandardError.ReadToEndAsync();
+                await process.WaitForExitAsync();
+
+                if (process.ExitCode != 0)
+                {
+                    _logger?.LogError("Failed to build Infrastructure project: {Error}", error);
+                    return false;
+                }
+
+                _logger?.LogInformation("Successfully built Infrastructure project");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error building Infrastructure project");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Fallback: analyze source code directly to find DbContext classes
+        /// </summary>
+        private async Task<List<DbContextInfo>> AnalyzeSourceCodeForDbContexts(string projectPath)
+        {
+            var result = new List<DbContextInfo>();
+
+            try
+            {
+                _logger?.LogInformation("Analyzing source code to find DbContext classes");
+
+                // Look for .cs files in the project
+                var sourceFiles = Directory.GetFiles(projectPath, "*.cs", SearchOption.AllDirectories);
+
+                foreach (var file in sourceFiles)
+                {
+                    try
+                    {
+                        string content = await File.ReadAllTextAsync(file);
+
+                        // Look for class declarations that inherit from DbContext
+                        if (content.Contains("DbContext") &&
+                            (content.Contains(" : DbContext") || content.Contains(" : Microsoft.EntityFrameworkCore.DbContext")))
+                        {
+                            // Parse the file to extract namespace and class name
+                            string namespaceName = ExtractNamespace(content);
+                            string className = ExtractClassName(content, "DbContext");
+
+                            if (!string.IsNullOrEmpty(className))
+                            {
+                                result.Add(new DbContextInfo
+                                {
+                                    Name = className,
+                                    FullName = string.IsNullOrEmpty(namespaceName) ? className : $"{namespaceName}.{className}",
+                                    Namespace = namespaceName,
+                                    Assembly = "MaintainEase.Infrastructure",
+                                    SourceFile = file
+                                });
+
+                                _logger?.LogInformation("Found DbContext in source: {Name} ({FullName})",
+                                    className, string.IsNullOrEmpty(namespaceName) ? className : $"{namespaceName}.{className}");
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogWarning(ex, "Error analyzing source file: {File}", file);
+                        // Continue to next file
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "Error analyzing source code");
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Extract namespace from source code
+        /// </summary>
+        private string ExtractNamespace(string content)
+        {
+            var match = Regex.Match(content, @"namespace\s+([^\s;{]+)");
+            return match.Success ? match.Groups[1].Value : string.Empty;
+        }
+
+        /// <summary>
+        /// Extract class name from source code
+        /// </summary>
+        private string ExtractClassName(string content, string baseClass)
+        {
+            // Look for a class that inherits from the specified base class
+            var match = Regex.Match(content, @"class\s+([^\s:;{]+)(?:\s*:\s*(?:[^{;]*\s)?" + baseClass + @")");
+            return match.Success ? match.Groups[1].Value : string.Empty;
+        }
+
+        /// <summary>
+        /// Create a minimal proxy project that helps with DbContext discovery
+        /// </summary>
+        private async Task CreateProxyProjectAsync(string proxyDir, string infrastructureProjectPath, List<DbContextInfo> dbContexts)
+        {
+            // Create a minimal project file that references Infrastructure
+            string projectContent = $@"<Project Sdk=""Microsoft.NET.Sdk"">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include=""Microsoft.EntityFrameworkCore.Design"" Version=""9.0.3"" PrivateAssets=""all"" />
+    <PackageReference Include=""Microsoft.EntityFrameworkCore.SqlServer"" Version=""9.0.3"" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include=""{infrastructureProjectPath}\MaintainEase.Infrastructure.csproj"" />
+  </ItemGroup>
+</Project>";
+
+            await File.WriteAllTextAsync(Path.Combine(proxyDir, "MigrationProxy.csproj"), projectContent);
+
+            // Create a factory class for each discovered DbContext
+            foreach (var context in dbContexts)
+            {
+                // Create a design-time factory for the context
+                string factoryContent = $@"// <auto-generated/>
+using System;
+using System.IO;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
+using Microsoft.Extensions.Configuration;
+
+namespace MigrationProxy.DesignTimeFactories
+{{
+    // Design-time factory for {context.Name}
+    public class {context.Name}Factory : IDesignTimeDbContextFactory<{context.FullName}>
+    {{
+        public {context.FullName} CreateDbContext(string[] args)
+        {{
+            string connectionString = Environment.GetEnvironmentVariable(""ConnectionStrings__DefaultConnection"") ?? 
+                                     ""Server=localhost;Database=MaintainEase;Trusted_Connection=True;TrustServerCertificate=true;MultipleActiveResultSets=true"";
+            
+            Console.WriteLine($""Using connection string: {{MaskConnectionString(connectionString)}}"");
+            
+            // Parse command line args for connection string
+            for (int i = 0; i < args.Length; i++)
+            {{
+                if (args[i] == ""--connection"" && i + 1 < args.Length)
+                {{
+                    connectionString = args[i + 1];
+                    Console.WriteLine($""Overriding with connection string from args: {{MaskConnectionString(connectionString)}}"");
+                    break;
+                }}
+            }}
+            
+            var optionsBuilder = new DbContextOptionsBuilder<{context.FullName}>();
+            optionsBuilder.UseSqlServer(connectionString);
+            
+            // Try to create an instance of the DbContext
+            try {{
+                return ({context.FullName})Activator.CreateInstance(
+                    typeof({context.FullName}), 
+                    optionsBuilder.Options);
+            }}
+            catch (Exception ex) {{
+                Console.WriteLine($""Error creating {context.Name}: {{ex.Message}}"");
+                Console.WriteLine(ex.StackTrace);
+                
+                // Create with minimal dependencies - for migration commands only
+                Console.WriteLine(""Trying to create with minimal dependencies for migration operations"");
+                
+                var constructors = typeof({context.FullName}).GetConstructors();
+                foreach (var constructor in constructors) {{
+                    Console.WriteLine($""Found constructor with {{constructor.GetParameters().Length}} parameters"");
+                }}
+                
+                throw;
+            }}
+        }}
+        
+        private string MaskConnectionString(string connectionString)
+        {{
+            if (string.IsNullOrEmpty(connectionString))
+                return ""[empty]"";
+
+            return System.Text.RegularExpressions.Regex.Replace(
+                connectionString,
+                @""(Password|pwd)=([^;]*)"",
+                ""$1=********"",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        }}
+    }}
+}}";
+
+                // Create file
+                var factoryDir = Path.Combine(proxyDir, "DesignTimeFactories");
+                Directory.CreateDirectory(factoryDir);
+                await File.WriteAllTextAsync(Path.Combine(factoryDir, $"{context.Name}Factory.cs"), factoryContent);
+            }
+
+            // Create a minimal Program.cs file with DbContext extension to help EF Core discover our DbContexts
+            string programContent = $@"// Migration proxy application
+using System;
+using System.Linq;
+using System.Reflection;
+using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Design;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace MigrationProxy
+{{
+    public class Program
+    {{
+        public static void Main(string[] args)
+        {{
+            Console.WriteLine(""Migration proxy running..."");
+            Console.WriteLine(""Available DbContexts:"");
+
+            // List available DbContexts for diagnostics
+            {string.Join("\n            ", dbContexts.Select(c => $"Console.WriteLine(\"  - {c.Name} ({c.FullName})\");"))}
+            
+            // If no args or help requested, show usage
+            if (args.Length == 0 || args.Contains(""--help"") || args.Contains(""-h""))
+            {{
+                ShowUsage();
+                return;
+            }}
+        }}
+        
+        private static void ShowUsage()
+        {{
+            Console.WriteLine(""Usage: MigrationProxy <command> [options]"");
+            Console.WriteLine();
+            Console.WriteLine(""Commands:"");
+            Console.WriteLine(""  migrations add <name>     Add a new migration"");
+            Console.WriteLine(""  migrations list          List available migrations"");
+            Console.WriteLine(""  database update          Apply migrations to the database"");
+            Console.WriteLine();
+            Console.WriteLine(""Options:"");
+            Console.WriteLine(""  --context <context>      The DbContext to use"");
+            Console.WriteLine(""  --connection <string>    The connection string to use"");
+        }}
+    }}
+}}";
+            await File.WriteAllTextAsync(Path.Combine(proxyDir, "Program.cs"), programContent);
+
+            // Restore and build the project
+            string restoreScriptPath = Path.Combine(Path.GetTempPath(), $"restore_proxy_{Guid.NewGuid()}.cmd");
+            await File.WriteAllTextAsync(restoreScriptPath, $"@echo off\ncd \"{proxyDir}\"\ndotnet restore\ndotnet build");
+
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = $"/c \"{restoreScriptPath}\"",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+
+            process.Start();
+            string output = await process.StandardOutput.ReadToEndAsync();
+            string error = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+
+            try { File.Delete(restoreScriptPath); } catch { /* Ignore errors */ }
+
+            if (process.ExitCode != 0)
+            {
+                _logger?.LogError("Failed to build proxy project: {Error}", error);
+                throw new Exception($"Failed to build proxy project: {error}");
+            }
+
+            _logger?.LogInformation("Created, restored, and built migration proxy project");
+        }
+
+        /// <summary>
+        /// Class to hold DbContext information
+        /// </summary>
+        public class DbContextInfo
+        {
+            public string Name { get; set; }
+            public string FullName { get; set; }
+            public string Namespace { get; set; }
+            public string Assembly { get; set; }
+            public string SourceFile { get; set; }  // Source file path if discovered via source code analysis
+        }
+
+        // Helper method to output project diagnostics
         private async Task<string> GenerateProjectDiagnosticsAsync(string projectPath)
         {
             var sb = new StringBuilder();
@@ -719,31 +1401,7 @@ namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins.Handlers
         /// </summary>
         private async Task<MigrationResult> ExecuteEfCoreCommandAsync(string scriptPath, CancellationToken cancellationToken)
         {
-            string infrastructureProjectPath = await FindInfrastructureProjectPathAsync();
-
-            // Create a diagnostic build command first to see potential issues
-            string diagnosticCmd = $"@echo off\necho Running diagnostics...\ndotnet build \"{infrastructureProjectPath}\" -v minimal";
-            await File.WriteAllTextAsync(scriptPath + ".diagnostic.cmd", diagnosticCmd, cancellationToken);
-
-            var diagnosticProcess = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = "cmd.exe",
-                    Arguments = $"/c \"{scriptPath}.diagnostic.cmd\"",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                }
-            };
-
-            diagnosticProcess.Start();
-            string diagnosticOutput = await diagnosticProcess.StandardOutput.ReadToEndAsync();
-            string diagnosticError = await diagnosticProcess.StandardError.ReadToEndAsync();
-            await diagnosticProcess.WaitForExitAsync(cancellationToken);
-
-            // Now run the actual command
+            // Run the actual command
             var process = new Process
             {
                 StartInfo = new ProcessStartInfo
@@ -773,9 +1431,6 @@ namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins.Handlers
                 if (!string.IsNullOrEmpty(error))
                     errorBuilder.AppendLine($"Error output: {error}");
 
-                if (!string.IsNullOrEmpty(diagnosticError))
-                    errorBuilder.AppendLine($"Build diagnostics: {diagnosticError}");
-
                 // Try to get MSBuild log if available
                 string msbuildLog = GetLastMsBuildLog();
                 if (!string.IsNullOrEmpty(msbuildLog))
@@ -788,9 +1443,8 @@ namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins.Handlers
             if (!string.IsNullOrEmpty(output))
             {
                 result.AdditionalInfo = new Dictionary<string, string> {
-            { "CommandOutput", output },
-            { "DiagnosticOutput", diagnosticOutput }
-        };
+                    { "CommandOutput", output }
+                };
             }
 
             return result;
@@ -863,59 +1517,6 @@ namespace MaintainEase.DbMigrator.Plugins.MigrationPlugins.Handlers
 
             // Assume dotnet is in PATH
             return "dotnet";
-        }
-
-        /// <summary>
-        /// Find the Infrastructure project path
-        /// </summary>
-        private async Task<string> FindInfrastructureProjectPathAsync()
-        {
-       
-
-            // Try to find solution file
-            string solutionDir = FindSolutionDirectory(Directory.GetCurrentDirectory());
-            if (string.IsNullOrEmpty(solutionDir))
-            {
-                _logger?.LogWarning("Could not find solution directory.");
-                return null;
-            }
-
-            // Look for Infrastructure project in solution directory
-            var possibleInfraLocations = new[]
-            {
-                Path.Combine(solutionDir, "src", "MaintainEase.Infrastructure"),
-                Path.Combine(solutionDir, "src", "Infrastructure"),
-                Path.Combine(solutionDir, "MaintainEase.Infrastructure"),
-                Path.Combine(solutionDir, "Infrastructure")
-            };
-
-            foreach (var location in possibleInfraLocations)
-            {
-                if (Directory.Exists(location))
-                {
-                    _logger?.LogInformation("Found Infrastructure project at: {Location}", location);
-                    return location;
-                }
-            }
-
-            // Try to find any project file with "Infrastructure" in the name
-            _logger?.LogInformation("Looking for Infrastructure project file in solution directory...");
-            try
-            {
-                var projFiles = Directory.GetFiles(solutionDir, "*Infrastructure*.csproj", SearchOption.AllDirectories);
-                if (projFiles.Length > 0)
-                {
-                    var projectPath = Path.GetDirectoryName(projFiles[0]);
-                    _logger?.LogInformation("Found Infrastructure project file at: {Path}", projectPath);
-                    return projectPath;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogError(ex, "Error searching for Infrastructure project file.");
-            }
-
-            return null;
         }
 
         /// <summary>
