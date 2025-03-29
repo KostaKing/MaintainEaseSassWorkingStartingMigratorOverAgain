@@ -46,16 +46,11 @@
     <!-- DO NOT copy EntityFramework and other framework assemblies that are already in the main application -->
     <!-- Exclude Microsoft.EntityFrameworkCore* to prevent version conflicts -->
     <ItemGroup>
-      <PluginDependencies Include="@(ReferenceCopyLocalPaths)"
-                          Condition="'%(ReferenceCopyLocalPaths.NuGetPackageId)'!='' and 
-                                  '%(ReferenceCopyLocalPaths.NuGetPackageId)'!='MaintainEase.DbMigrator.Contracts' and
-                                  !$([System.String]::Copy('%(ReferenceCopyLocalPaths.NuGetPackageId)').StartsWith('Microsoft.EntityFrameworkCore')) and
-                                  !$([System.String]::Copy('%(ReferenceCopyLocalPaths.Filename)').StartsWith('Microsoft.EntityFrameworkCore'))" />
+      <PluginDependencies Include="@(ReferenceCopyLocalPaths)" Condition="'%(ReferenceCopyLocalPaths.NuGetPackageId)'!='' and &#xD;&#xA;                                  '%(ReferenceCopyLocalPaths.NuGetPackageId)'!='MaintainEase.DbMigrator.Contracts' and&#xD;&#xA;                                  !$([System.String]::Copy('%(ReferenceCopyLocalPaths.NuGetPackageId)').StartsWith('Microsoft.EntityFrameworkCore')) and&#xD;&#xA;                                  !$([System.String]::Copy('%(ReferenceCopyLocalPaths.Filename)').StartsWith('Microsoft.EntityFrameworkCore'))" />
     </ItemGroup>
 
     <!-- Copy the filtered dependencies -->
-    <Copy SourceFiles="@(PluginDependencies)"
-          DestinationFiles="@(PluginDependencies->'$(PluginOutputPath)%(DestinationSubDirectory)%(Filename)%(Extension)')" />
+    <Copy SourceFiles="@(PluginDependencies)" DestinationFiles="@(PluginDependencies->'$(PluginOutputPath)%(DestinationSubDirectory)%(Filename)%(Extension)')" />
 
     <!-- Log message on successful copy -->
     <Message Text="Copied plugin and dependencies to $(PluginOutputPath)" Importance="high" />
