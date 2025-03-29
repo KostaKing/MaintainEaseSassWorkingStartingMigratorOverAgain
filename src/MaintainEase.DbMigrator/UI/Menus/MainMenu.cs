@@ -278,77 +278,61 @@ namespace MaintainEase.DbMigrator.UI.Menus
 
         private async Task CreateNewMigrationAsync()
         {
-            // Prompt for a migration name
-            var migrationName = AnsiConsole.Prompt(
-                new TextPrompt<string>("Enter migration name:")
-                    .DefaultValue($"Migration_{DateTime.UtcNow:yyyyMMdd_HHmmss}")
-                    .ValidationErrorMessage("[red]Migration name cannot be empty[/]")
-                    .Validate(name => string.IsNullOrWhiteSpace(name)
-                        ? ValidationResult.Error("Migration name cannot be empty")
-                        : ValidationResult.Success()));
-
-            // Select output directory
-            string outputDir = _appContext.MigrationsDirectory;
-            if (MenuComponents.Confirm("Specify output directory?", false))
+            try
             {
-                outputDir = AnsiConsole.Prompt(
-                    new TextPrompt<string>("Enter output directory path:")
-                        .DefaultValue(outputDir)
-                        .ValidationErrorMessage("[red]Directory path cannot be empty[/]"));
-            }
+                // Prompt for a migration name
+                var migrationName = AnsiConsole.Prompt(
+                    new TextPrompt<string>("Enter migration name:")
+                        .DefaultValue($"Migration_{DateTime.UtcNow:yyyyMMdd_HHmmss}")
+                        .ValidationErrorMessage("[red]Migration name cannot be empty[/]")
+                        .Validate(name => string.IsNullOrWhiteSpace(name)
+                            ? ValidationResult.Error("Migration name cannot be empty")
+                            : ValidationResult.Success()));
 
-            // Create the migration
-            var result = await SpinnerComponents.WithSpinnerAsync(
-                $"Creating migration '{migrationName}'...",
-                async () => await _migrationHelper.CreateMigrationAsync(migrationName, outputDir),
-                "Processing");
-
-            if (result.Success)
-            {
-                SafeMarkup.Success($"Migration '{migrationName}' created successfully");
-
-                if (result.AppliedMigrations?.Count > 0)
+                // Select output directory
+                string outputDir = _appContext.MigrationsDirectory;
+                if (MenuComponents.Confirm("Specify output directory?", false))
                 {
-                    var migration = result.AppliedMigrations[0];
+                    outputDir = AnsiConsole.Prompt(
+                        new TextPrompt<string>("Enter output directory path:")
+                            .DefaultValue(outputDir)
+                            .ValidationErrorMessage("[red]Directory path cannot be empty[/]"));
+                }
 
-                    if (!string.IsNullOrEmpty(migration.Id))
-                    {
-                        SafeMarkup.Info($"Migration ID: {migration.Id}");
-                    }
+                // Select provider
+                string provider = _appContext.CurrentProvider;
+                if (MenuComponents.Confirm("Change provider from " + provider + "?", false))
+                {
+                    var providerOptions = new List<string> { "SqlServer", "PostgreSQL" };
+                    provider = AnsiConsole.Prompt(
+                        new SelectionPrompt<string>()
+                            .Title("Select database provider:")
+                            .PageSize(10)
+                            .HighlightStyle(SafeMarkup.Themes.PrimaryStyle)
+                            .AddChoices(providerOptions));
+                }
 
-                    if (!string.IsNullOrEmpty(migration.Script))
-                    {
-                        SafeMarkup.Info($"Script: {migration.Script}");
-                    }
+                // Create the settings for the command
+                var settings = new CreateMigrationCommand.Settings
+                {
+                    MigrationName = migrationName,
+                    Provider = provider,
+                    TenantIdentifier = _appContext.CurrentTenant,
+                    DbContext = "App",
+                    OutputDir = outputDir
+                };
+
+                // Use the service provider to get the command
+                using (var scope = Program.ServiceProvider.CreateScope())
+                {
+                    var createCommand = scope.ServiceProvider.GetRequiredService<CreateMigrationCommand>();
+                    await createCommand.ExecuteAsync(_commandContext, settings);
                 }
             }
-            else
+            catch (Exception ex)
             {
-                SafeMarkup.Error($"Failed to create migration: {result.ErrorMessage}");
-
-                // Offer to create an empty migration file
-                if (MenuComponents.Confirm("Create empty migration file?", true))
-                {
-                    // Create an empty migration file
-                    var migrationFileName = $"{migrationName}.sql";
-                    var migrationFilePath = Path.Combine(outputDir, migrationFileName);
-
-                    try
-                    {
-                        Directory.CreateDirectory(outputDir);
-                        File.WriteAllText(migrationFilePath,
-                            $"-- Migration: {migrationName}\r\n" +
-                            $"-- Created: {DateTime.Now}\r\n" +
-                            $"-- Provider: {_appContext.CurrentProvider}\r\n\r\n" +
-                            $"-- Write your migration SQL here\r\n\r\n");
-
-                        SafeMarkup.Success($"Created empty migration file: {migrationFilePath}");
-                    }
-                    catch (Exception ex)
-                    {
-                        SafeMarkup.Error($"Failed to create empty migration file: {ex.Message}");
-                    }
-                }
+                _logger.LogError(ex, "Error creating migration");
+                DialogComponents.ShowException(ex, "Migration Error");
             }
         }
 
@@ -400,6 +384,8 @@ namespace MaintainEase.DbMigrator.UI.Menus
         /// <summary>
         /// Execute the create migration command
         /// </summary>
+        // Find this code in your MainMenu.cs around line 426:
+
         private async Task ExecuteCreateMigrationCommandAsync()
         {
             try
@@ -423,14 +409,13 @@ namespace MaintainEase.DbMigrator.UI.Menus
                         .AddChoices(providerOptions));
 
                 // Create settings for the command
-                var settings = new CreateMigrationCommandSettings
+                var settings = new CreateMigrationCommand.Settings
                 {
-                    Name = migrationName,
+                    MigrationName = migrationName,
                     Provider = provider,
-                    Environment = _appContext.CurrentEnvironment,
-                    Tenant = _appContext.CurrentTenant,
-                    Verbose = _appContext.IsDebugMode,
-                    OutputDirectory = Path.Combine(_appContext.WorkingDirectory, "Migrations")
+                    TenantIdentifier = _appContext.CurrentTenant,
+                    DbContext = "App",
+                    OutputDir = Path.Combine(_appContext.WorkingDirectory, "Migrations")
                 };
 
                 // Use the service provider from Program class to get the command
@@ -446,7 +431,6 @@ namespace MaintainEase.DbMigrator.UI.Menus
                 DialogComponents.ShowException(ex, "Command Error");
             }
         }
-
         /// <summary>
         /// Execute the migrate command
         /// </summary>

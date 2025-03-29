@@ -11,6 +11,18 @@
         "Name": "Default Tenant",
         "ConnectionString": "",
         "EnableMigrations": true
+      },
+      {
+        "Identifier": "tenant1",
+        "Name": "Tenant One",
+        "ConnectionString": "Server=localhost;Database=MaintainEase_Tenant1;Trusted_Connection=True;TrustServerCertificate=true;MultipleActiveResultSets=true",
+        "EnableMigrations": true
+      },
+      {
+        "Identifier": "tenant2",
+        "Name": "Tenant Two",
+        "ConnectionString": "Server=localhost;Database=MaintainEase_Tenant2;Trusted_Connection=True;TrustServerCertificate=true;MultipleActiveResultSets=true",
+        "EnableMigrations": true
       }
     ],
     "Backup": {
@@ -28,14 +40,13 @@
       "LogPath": "Logs",
       "LogMigrationOperations": true
     },
-    "Cloud": {
-      "Azure": {
-        "Server": "",
-        "UseManagedIdentity": true
+    "Providers": {
+      "SqlServer": {
+        "MigrationHistoryTable": "__EFMigrationsHistory"
       },
-      "AWS": {
-        "Region": "us-east-1",
-        "DbInstanceIdentifier": ""
+      "PostgreSQL": {
+        "MigrationHistoryTable": "__EFMigrationsHistory",
+        "Schema": "public"
       }
     }
   },

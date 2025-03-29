@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Spectre.Console;
 using Spectre.Console.Cli;
 using MaintainEase.DbMigrator.Commands;
@@ -94,6 +95,10 @@ public class Program
         // Add configuration
         services.AddSingleton(configuration);
 
+        // Register DbMigratorSettings from configuration
+        services.Configure<DbMigratorSettings>(configuration.GetSection("DbMigratorSettings"));
+        services.AddSingleton(sp => sp.GetRequiredService<IOptions<DbMigratorSettings>>().Value);
+
         // Add logging
         services.AddLogging(logging =>
         {
@@ -121,8 +126,6 @@ public class Program
 
         // Add migration plugins
         services.AddMigrationPlugins(Path.Combine(Directory.GetCurrentDirectory(), "Plugins"));
-
-
 
         // Add migration helper
         services.AddTransient<MigrationHelper>();
